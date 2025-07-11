@@ -16,7 +16,6 @@ app.use('/api/notes', noteRoutes);
 mongoose.connect(process.env.MONGO_URI)
 .then(() => console.log('✅ MongoDB connecté'))
 .catch(err => console.error('❌ Erreur de connexion à MongoDB:', err));
-
 // Routes simples pour tester
 app.get('/', (req, res) => {
   res.send('API est en marche 🚀');
