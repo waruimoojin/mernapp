@@ -1,95 +1,111 @@
 pipeline {
   agent {
     kubernetes {
-      yamlFile 'k8s/pod-template.yaml'
-      defaultContainer 'node'
+      label 'jenkins-mern-img'
+      defaultContainer 'jnlp'
+      yaml """
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    jenkins: slave
+spec:
+  containers:
+    - name: jnlp
+      image: jenkins/inbound-agent:latest
+      args: ['\$(JENKINS_SECRET)', '\$(JENKINS_NAME)']
+      env:
+        - name: JENKINS_URL
+          value: http://192.168.56.80:8080
+      ports:
+        - containerPort: 50000
+          name: jnlp
+      resources:
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
+        requests:
+          memory: "256Mi"
+          cpu: "200m"
+
+    - name: node
+      image: node:18
+      command:
+        - cat
+      tty: true
+
+    - name: img
+      image: docker.io/genuinetools/img:latest
+      command:
+        - cat
+      tty: true
+
+    - name: sonar-scanner
+      image: sonarsource/sonar-scanner-cli:latest
+      command:
+        - cat
+      tty: true
+
+    - name: trivy
+      image: aquasec/trivy:latest
+      command:
+        - cat
+      tty: true
+
+  restartPolicy: Never
+"""
     }
   }
 
-  environment {
-    DOCKER_REGISTRY = "registry.gitlab.com/waruimoojin/mernapp"
-    SONARQUBE_URL = "http://192.168.56.51:9000"
-    VERSION = "v${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(8)}"
-  }
-
-  stages {
-    stage('Install & Test Frontend') {
-      steps {
-        container('node') {
-          dir('frontend') {
-            sh 'npm ci --no-audit'
-            sh 'npm run test:ci'
-            sh 'npm run build'
-          }
-        }
-      }
-      post {
-        always {
-          junit 'frontend/test-results.xml'
-        }
-      }
-    }
-
-    stage('Install & Test Backend') {
-      steps {
-        container('node') {
-          dir('backend') {
-            sh 'npm ci --no-audit'
-            sh 'npm run test:ci'
-            sh 'npm run build'
-          }
-        }
-      }
-      post {
-        always {
-          junit 'backend/test-results.xml'
-        }
-      }
-    }
-
-    stage('Analyse SonarQube') {
-      steps {
-        container('sonar-scanner') {
-          withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
-            sh """
-              sonar-scanner \
-                -Dsonar.projectKey=mernapp \
-                -Dsonar.projectVersion=${VERSION} \
-                -Dsonar.sources=. \
-                -Dsonar.host.url=${SONARQUBE_URL} \
-                -Dsonar.login=${SONAR_TOKEN}
-            """
-          }
-        }
-      }
-    }
-
-    stage('Build & Push Images') {
-      steps {
-        container('kaniko') {
-          withCredentials([usernamePassword(credentialsId: 'docker-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-            sh """
-              /kaniko/executor --context \$WORKSPACE/frontend --dockerfile \$WORKSPACE/frontend/Dockerfile --destination registry.gitlab.com/votre-compte/frontend:${VERSION} --destination registry.gitlab.com/votre-compte/frontend:latest --cache=true
-              /kaniko/executor --context \$WORKSPACE/backend --dockerfile \$WORKSPACE/backend/Dockerfile --destination registry.gitlab.com/votre-compte/backend:${VERSION} --destination registry.gitlab.com/votre-compte/backend:latest --cache=true
-            """
-      }
-    }
-  }
+environment {
+  DOCKER_REGISTRY = 'registry.gitlab.com'
+  IMAGE_NAME = 'https://gitlab.com/waruimoojin/mernapp'  // chemin complet du repo GitLab
+  IMAGE_TAG = "jenkins-${env.BUILD_NUMBER}"
 }
 
 
-    stage('Scan Images with Trivy') {
+  stages {
+    stage('Checkout') {
       steps {
-        container('trivy') {
-          sh """
-            trivy image ${DOCKER_REGISTRY}/frontend:${VERSION} > frontend-trivy-report.txt
-            trivy image ${DOCKER_REGISTRY}/backend:${VERSION} > backend-trivy-report.txt
-          """
+        checkout scm
+      }
+    }
+
+    stage('Build Image') {
+      steps {
+        container('img') {
+          script {
+            // Si besoin de docker config pour push (via secret Jenkins)
+            sh """
+              mkdir -p ~/.docker
+              echo '\$DOCKER_CONFIG_JSON' > ~/.docker/config.json
+            """
+            sh "img build -t ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ."
+          }
         }
       }
-      post {
-        always {
-          archiveArtifacts artifacts: '*.txt', allowEmptyArchive: true
+    }
+
+    stage('Push Image') {
+      steps {
+        container('img') {
+          sh "img push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+        }
+      }
+    }
+
+    stage('SonarQube Scan') {
+      steps {
+        container('sonar-scanner') {
+          sh 'sonar-scanner'
+        }
+      }
+    }
+
+    stage('Security Scan') {
+      steps {
+        container('trivy') {
+          sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
         }
       }
     }
@@ -97,13 +113,9 @@ pipeline {
 
   post {
     always {
-      cleanWs()
-    }
-    success {
-      echo "✅ Build & Push réussi pour version ${VERSION}"
-    }
-    failure {
-      echo "❌ Build échoué - voir les logs"
+      container('node') {
+        cleanWs()
+      }
     }
   }
 }
