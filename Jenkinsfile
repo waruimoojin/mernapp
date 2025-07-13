@@ -2,7 +2,7 @@ pipeline {
   agent {
     kubernetes {
       label 'jenkins-mern-img'
-      defaultContainer 'jnlp'
+      defaultContainer 'jnlp'  // container principal d'agent Jenkins (toujours nécessaire)
       yaml """
 apiVersion: v1
 kind: Pod
@@ -57,12 +57,11 @@ spec:
     }
   }
 
-environment {
-  DOCKER_REGISTRY = 'registry.gitlab.com'
-  IMAGE_NAME = 'https://gitlab.com/waruimoojin/mernapp'  // chemin complet du repo GitLab
-  IMAGE_TAG = "jenkins-${env.BUILD_NUMBER}"
-}
-
+  environment {
+    DOCKER_REGISTRY = 'registry.gitlab.com'
+    IMAGE_NAME = 'waruimoojin/mernapp'  // nom image sans https ni chemin git
+    IMAGE_TAG = "jenkins-${env.BUILD_NUMBER}"
+  }
 
   stages {
     stage('Checkout') {
@@ -75,12 +74,11 @@ environment {
       steps {
         container('img') {
           script {
-            // Si besoin de docker config pour push (via secret Jenkins)
             sh """
               mkdir -p ~/.docker
               echo '\$DOCKER_CONFIG_JSON' > ~/.docker/config.json
+              img build -t ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} .
             """
-            sh "img build -t ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ."
           }
         }
       }
