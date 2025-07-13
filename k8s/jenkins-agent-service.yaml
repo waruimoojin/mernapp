@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins-agent-service
+  namespace: cicd
+spec:
+  selector:
+    app.kubernetes.io/component: jenkins-controller
+    app.kubernetes.io/instance: jenkins
+  ports:
+    - name: jnlp
+      protocol: TCP
+      port: 50000
+      targetPort: 50000
+  type: ClusterIP

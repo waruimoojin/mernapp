@@ -1,0 +1,8 @@
+controller:
+  service:
+    ports:
+      jnlp:
+        name: jnlp
+        port: 50000
+        targetPort: 50000
+        protocol: TCP
