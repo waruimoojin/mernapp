@@ -1,8 +1,8 @@
 pipeline {
   agent {
     kubernetes {
-      label 'jenkins-mern-img'
-      defaultContainer 'jnlp'  // container principal d'agent Jenkins (toujours nécessaire)
+      label 'jenkins-docker-agent'
+      defaultContainer 'docker'
       yaml """
 apiVersion: v1
 kind: Pod
@@ -11,47 +11,36 @@ metadata:
     jenkins: slave
 spec:
   containers:
-    - name: jnlp
-      image: jenkins/inbound-agent:latest
-      args: ['\$(JENKINS_SECRET)', '\$(JENKINS_NAME)']
+    - name: docker
+      image: docker:24.0.5
+      command:
+        - cat
+      tty: true
       env:
-        - name: JENKINS_URL
-          value: http://192.168.56.80:8080
+        - name: DOCKER_HOST
+          value: tcp://localhost:2375
+      volumeMounts:
+        - name: docker-graph-storage
+          mountPath: /var/lib/docker
+
+    - name: dind
+      image: docker:24.0.5-dind
+      securityContext:
+        privileged: true
       ports:
-        - containerPort: 50000
-          name: jnlp
-      resources:
-        limits:
-          memory: "512Mi"
-          cpu: "500m"
-        requests:
-          memory: "256Mi"
-          cpu: "200m"
-
-    - name: node
-      image: node:18
+        - containerPort: 2375
       command:
-        - cat
-      tty: true
+        - dockerd-entrypoint.sh
+      args:
+        - --host=tcp://0.0.0.0:2375
+        - --host=unix:///var/run/docker.sock
+      volumeMounts:
+        - name: docker-graph-storage
+          mountPath: /var/lib/docker
 
-    - name: img
-      image: docker.io/genuinetools/img:latest
-      command:
-        - cat
-      tty: true
-
-    - name: sonar-scanner
-      image: sonarsource/sonar-scanner-cli:latest
-      command:
-        - cat
-      tty: true
-
-    - name: trivy
-      image: aquasec/trivy:latest
-      command:
-        - cat
-      tty: true
-
+  volumes:
+    - name: docker-graph-storage
+      emptyDir: {}
   restartPolicy: Never
 """
     }
@@ -59,9 +48,10 @@ spec:
 
   environment {
     DOCKER_REGISTRY = 'registry.gitlab.com'
-    IMAGE_NAME = 'waruimoojin/mernapp'  // nom image sans https ni chemin git
+    IMAGE_NAME = 'waruimoojin/mernapp'  // chemin complet du repo GitLab
     IMAGE_TAG = "jenkins-${env.BUILD_NUMBER}"
-  }
+}
+
 
   stages {
     stage('Checkout') {
@@ -70,39 +60,40 @@ spec:
       }
     }
 
-    stage('Build Image') {
+    stage('Build Docker Image') {
       steps {
-        container('img') {
-          script {
-            sh """
-              mkdir -p ~/.docker
-              echo '\$DOCKER_CONFIG_JSON' > ~/.docker/config.json
-              img build -t ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} .
-            """
-          }
+        container('docker') {
+          sh """
+            docker build -t ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} .
+          """
         }
       }
     }
 
-    stage('Push Image') {
+    stage('Push Docker Image') {
       steps {
-        container('img') {
-          sh "img push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+        container('docker') {
+          withCredentials([usernamePassword(credentialsId: 'gitlab-docker-credentials', usernameVariable: 'CI_REGISTRY_USER', passwordVariable: 'CI_REGISTRY_PASSWORD')]) {
+            sh """
+              echo "\$CI_REGISTRY_PASSWORD" | docker login -u "\$CI_REGISTRY_USER" --password-stdin ${DOCKER_REGISTRY}
+                docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+          """
+          }
         }
       }
     }
 
     stage('SonarQube Scan') {
       steps {
-        container('sonar-scanner') {
-          sh 'sonar-scanner'
+        container('docker') {
+          sh 'sonar-scanner'  // adapte si besoin, tu peux aussi avoir un container sonar dans le pod si tu veux
         }
       }
     }
 
     stage('Security Scan') {
       steps {
-        container('trivy') {
+        container('docker') {
           sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
         }
       }
@@ -111,9 +102,7 @@ spec:
 
   post {
     always {
-      container('node') {
-        cleanWs()
-      }
+      cleanWs()
     }
   }
 }
