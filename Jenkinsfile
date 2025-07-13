@@ -67,24 +67,16 @@ pipeline {
     stage('Build & Push Images') {
       steps {
         container('kaniko') {
-          sh """
-            /kaniko/executor \
-              --context \$WORKSPACE/frontend \
-              --dockerfile \$WORKSPACE/frontend/Dockerfile \
-              --destination ${DOCKER_REGISTRY}/frontend:${VERSION} \
-              --destination ${DOCKER_REGISTRY}/frontend:latest \
-              --cache=true
-
-            /kaniko/executor \
-              --context \$WORKSPACE/backend \
-              --dockerfile \$WORKSPACE/backend/Dockerfile \
-              --destination ${DOCKER_REGISTRY}/backend:${VERSION} \
-              --destination ${DOCKER_REGISTRY}/backend:latest \
-              --cache=true
-          """
-        }
+          withCredentials([usernamePassword(credentialsId: 'docker-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+            sh """
+              /kaniko/executor --context \$WORKSPACE/frontend --dockerfile \$WORKSPACE/frontend/Dockerfile --destination registry.gitlab.com/votre-compte/frontend:${VERSION} --destination registry.gitlab.com/votre-compte/frontend:latest --cache=true
+              /kaniko/executor --context \$WORKSPACE/backend --dockerfile \$WORKSPACE/backend/Dockerfile --destination registry.gitlab.com/votre-compte/backend:${VERSION} --destination registry.gitlab.com/votre-compte/backend:latest --cache=true
+            """
       }
     }
+  }
+}
+
 
     stage('Scan Images with Trivy') {
       steps {
