@@ -18,7 +18,9 @@ spec:
   - name: kaniko
     image: gcr.io/kaniko-project/executor:latest
     command:
-    - cat
+    - /kaniko/executor
+    args:
+    - --help
     tty: true
     volumeMounts:
     - name: kaniko-secret
