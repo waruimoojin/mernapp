@@ -8,7 +8,7 @@ pipeline {
         DOCKER_CREDENTIALS_ID = "docker-registry-credentials"
         SONARQUBE_SERVER = 'SonarQube'  // Nom du serveur SonarQube dans Jenkins
         TRIVY_API_URL = "http://trivy-server.my-domain/api/v1/scan/image"
-        SSH_CREDENTIALS_ID = "gitlab-ssh-key"  // L'ID de ta clé SSH dans Jenkins Credentials
+        
     }
 
     stages {
@@ -22,7 +22,7 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                sshagent(credentials: [env.SSH_CREDENTIALS_ID]) {
+                sshagent(credentials: ['gitlab-ssh-key']) {  
                     git url: 'git@gitlab.com:waruimoojin/mernapp.git', branch: 'main'
                 }
             }
