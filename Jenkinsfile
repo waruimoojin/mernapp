@@ -10,6 +10,11 @@ pipeline {
         TRIVY_API_URL = "http://trivy-server.my-domain/api/v1/scan/image"
         SSH_CREDENTIALS_ID = "gitlab-ssh-key"  // L'ID de ta clé SSH dans Jenkins Credentials
     }
+    steps {
+        script {
+         echo "SSH_CREDENTIALS_ID=${env.SSH_CREDENTIALS_ID}"
+      }
+  }
 
     stages {
         stage('Checkout') {
@@ -87,14 +92,5 @@ pipeline {
         }
     }
 
-    post {
-        always {
-            cleanWs()
-        }
-        failure {
-            mail to: 'chakib56@gmail.com',
-                 subject: "Build Jenkins #${env.BUILD_NUMBER} échoué",
-                 body: "Le build Jenkins a échoué. Voir les logs : ${env.BUILD_URL}"
-        }
-    }
+
 }
