@@ -1,108 +1,98 @@
 pipeline {
-  agent {
-    kubernetes {
-      label 'jenkins-docker-agent'
-      defaultContainer 'docker'
-      yaml """
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    jenkins: slave
-spec:
-  containers:
-    - name: docker
-      image: docker:24.0.5
-      command:
-        - cat
-      tty: true
-      env:
-        - name: DOCKER_HOST
-          value: tcp://localhost:2375
-      volumeMounts:
-        - name: docker-graph-storage
-          mountPath: /var/lib/docker
+    agent any
 
-    - name: dind
-      image: docker:24.0.5-dind
-      securityContext:
-        privileged: true
-      ports:
-        - containerPort: 2375
-      command:
-        - dockerd-entrypoint.sh
-      args:
-        - --host=tcp://0.0.0.0:2375
-        - --host=unix:///var/run/docker.sock
-      volumeMounts:
-        - name: docker-graph-storage
-          mountPath: /var/lib/docker
-
-  volumes:
-    - name: docker-graph-storage
-      emptyDir: {}
-  restartPolicy: Never
-"""
-    }
-  }
-
-  environment {
-    DOCKER_REGISTRY = 'registry.gitlab.com'
-    IMAGE_NAME = 'waruimoojin/mernapp'  // chemin complet du repo GitLab
-    IMAGE_TAG = "jenkins-${env.BUILD_NUMBER}"
-}
-
-
-  stages {
-    stage('Checkout') {
-      steps {
-        checkout scm
-      }
+    environment {
+        REGISTRY = "registry.gitlab.com"
+        FRONTEND_IMAGE = "${REGISTRY}/frontend:latest"
+        BACKEND_IMAGE = "${REGISTRY}/backend:latest"
+        DOCKER_CREDENTIALS_ID = "docker-registry-credentials"
+        GIT_CREDENTIALS_ID = "git-credentials"
+        SONARQUBE_SERVER = 'SonarQube'  // Nom du serveur SonarQube dans Jenkins
+        TRIVY_API_URL = "http://trivy-server.my-domain/api/v1/scan/image"
     }
 
-    stage('Build Docker Image') {
-      steps {
-        container('docker') {
-          sh """
-            docker build -t ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} .
-          """
+    stages {
+        stage('Checkout') {
+            steps {
+                git credentialsId: env.GIT_CREDENTIALS_ID, url: 'git@gitlab.com:waruimoojin/mernapp.git', branch: 'main'
+            }
         }
-      }
-    }
 
-    stage('Push Docker Image') {
-      steps {
-        container('docker') {
-          withCredentials([usernamePassword(credentialsId: 'gitlab-docker-credentials', usernameVariable: 'CI_REGISTRY_USER', passwordVariable: 'CI_REGISTRY_PASSWORD')]) {
-            sh """
-              echo "\$CI_REGISTRY_PASSWORD" | docker login -u "\$CI_REGISTRY_USER" --password-stdin ${DOCKER_REGISTRY}
-                docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
-          """
-          }
+        stage('Tests') {
+            steps {
+                script {
+                    sh 'cd backend && npm install && npm test'
+                    sh 'cd frontend && npm install && npm test'
+                }
+            }
         }
-      }
-    }
 
-    stage('SonarQube Scan') {
-      steps {
-        container('docker') {
-          sh 'sonar-scanner'  // adapte si besoin, tu peux aussi avoir un container sonar dans le pod si tu veux
+        stage('SonarQube Analysis') {
+        steps {
+           withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+              dir('backend') {
+                  withSonarQubeEnv(env.SONARQUBE_SERVER) {
+                    sh 'sonar-scanner -Dsonar.login=$SONAR_TOKEN'
+                }
+            }
+            dir('frontend') {
+                withSonarQubeEnv(env.SONARQUBE_SERVER) {
+                    sh 'sonar-scanner -Dsonar.login=$SONAR_TOKEN'
+                        }
+                    }
+                }
+            }
         }
-      }
-    }
 
-    stage('Security Scan') {
-      steps {
-        container('docker') {
-          sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+        stage('Build & Push Docker Images') {
+            steps {
+                script {
+                    docker.withRegistry("https://${env.REGISTRY}", env.DOCKER_CREDENTIALS_ID) {
+                        def backendImage = docker.build(env.BACKEND_IMAGE, './backend')
+                        backendImage.push()
+
+                        def frontendImage = docker.build(env.FRONTEND_IMAGE, './frontend')
+                        frontendImage.push()
+                    }
+                }
+            }
         }
-      }
-    }
-  }
 
-  post {
-    always {
-      cleanWs()
+        stage('Scan Images with Trivy API') {
+            steps {
+                script {
+                    def scanImage = { image ->
+                        echo "Scanning image ${image} with Trivy API"
+                        def jsonPayload = """{"image": "${image}"}"""
+                        def response = sh(
+                            script: "curl -s -X POST -H 'Content-Type: application/json' -d '${jsonPayload}' ${env.TRIVY_API_URL}",
+                            returnStdout: true
+                        ).trim()
+                        echo "Trivy scan result: ${response}"
+
+                        def json = readJSON text: response
+                        def vulnerabilities = json.Results[0]?.Vulnerabilities ?: []
+                        def criticals = vulnerabilities.findAll { it.Severity == 'CRITICAL' }
+                        if (criticals.size() > 0) {
+                            error("Trivy found CRITICAL vulnerabilities! Build failed.")
+                        }
+                    }
+
+                    scanImage(env.BACKEND_IMAGE)
+                    scanImage(env.FRONTEND_IMAGE)
+                }
+            }
+        }
     }
-  }
+
+    post {
+        always {
+            cleanWs()
+        }
+        failure {
+            mail to: 'chakib56@gmail.com',
+                 subject: "Build Jenkins #${env.BUILD_NUMBER} échoué",
+                 body: "Le build Jenkins a échoué. Voir les logs : ${env.BUILD_URL}"
+        }
+    }
 }
