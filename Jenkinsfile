@@ -11,7 +11,7 @@ pipeline {
         BACKEND_IMAGE = "${REGISTRY}/backend:latest"
         DOCKER_CREDENTIALS_ID = "gitlab-registry-credentials"
         SONARQUBE_SERVER = 'SonarQube'
-        SONAR_TOKEN_CREDENTIAL_ID = "sonarqube-token"
+        SONAR_TOKEN_CREDENTIAL_ID = "sonarquibe-token"
         TRIVY_API_URL = "http://trivy-server.my-domain/api/v1/scan/image"
         GIT_HTTPS_CREDENTIALS_ID = "gitlab-https-token"
     }
@@ -20,31 +20,27 @@ pipeline {
         stage('Setup Tools') {
             steps {
                 script {
-                    // Installer les dépendances système
+                    // Installer les outils sans apt-get
                     sh '''
-                        apt-get update
-                        apt-get install -y curl git unzip
-                    '''
-                    
-                    // Installer Node.js
-                    sh '''
-                        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-                        apt-get install -y nodejs
+                        # Installer Node.js
+                        curl -fsSL https://fnm.vercel.app/install | bash
+                        export PATH="$HOME/.local/share/fnm:$PATH"
+                        fnm install 18
+                        fnm use 18
                         node -v
-                    '''
-                    
-                    // Installer Docker
-                    sh '''
-                        curl -fsSL https://get.docker.com -o get-docker.sh
-                        sh get-docker.sh
-                        docker version
-                    '''
-                    
-                    // Installer SonarScanner
-                    sh '''
-                        wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
-                        unzip sonar-scanner-cli-4.8.0.2856-linux.zip
-                        mv sonar-scanner-4.8.0.2856-linux /opt/sonar-scanner
+                        
+                        # Installer Docker CLI uniquement
+                        curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-20.10.9.tgz -o docker.tgz
+                        tar xzvf docker.tgz
+                        mv docker/docker /usr/local/bin/
+                        rm -rf docker docker.tgz
+                        docker --version
+                        
+                        # Installer SonarScanner
+                        SONAR_SCANNER_VERSION="4.8.0.2856"
+                        curl -fsSL https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SONAR_SCANNER_VERSION}-linux.zip -o sonar-scanner.zip
+                        unzip sonar-scanner.zip
+                        mv sonar-scanner-${SONAR_SCANNER_VERSION}-linux /opt/sonar-scanner
                         ln -s /opt/sonar-scanner/bin/sonar-scanner /usr/local/bin/sonar-scanner
                         sonar-scanner -v
                     '''
@@ -95,16 +91,24 @@ pipeline {
             }
         }
 
-        stage('Build & Push Docker Images') {
+        stage('Build & Push Images') {
             steps {
                 script {
-                    docker.withRegistry("https://${env.REGISTRY}", env.DOCKER_CREDENTIALS_ID) {
-                        sh 'cd backend && docker build -t ${BACKEND_IMAGE} .'
-                        sh 'docker push ${BACKEND_IMAGE}'
+                    // Utilisation de Buildah pour construire les images sans démon Docker
+                    sh '''
+                        # Installer Buildah
+                        apt-get update && apt-get install -y buildah || true
                         
-                        sh 'cd frontend && docker build -t ${FRONTEND_IMAGE} .'
-                        sh 'docker push ${FRONTEND_IMAGE}'
-                    }
+                        # Build et push backend
+                        cd backend
+                        buildah bud -t ${BACKEND_IMAGE} .
+                        buildah push ${BACKEND_IMAGE} docker://${BACKEND_IMAGE}
+                        
+                        # Build et push frontend
+                        cd ../frontend
+                        buildah bud -t ${FRONTEND_IMAGE} .
+                        buildah push ${FRONTEND_IMAGE} docker://${FRONTEND_IMAGE}
+                    '''
                 }
             }
         }
@@ -135,7 +139,6 @@ pipeline {
         }
         failure {
             script {
-                // Solution simple pour notification
                 echo "BUILD FAILED: ${env.BUILD_URL}"
             }
         }
