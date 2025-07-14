@@ -10,19 +10,22 @@ pipeline {
         SONAR_TOKEN_CREDENTIAL_ID = "sonarquibe-token"
         TRIVY_API_URL = "http://trivy-server.my-domain/api/v1/scan/image"
         GIT_HTTPS_CREDENTIALS_ID = "gitlab-https-token"
+        DOCKER_BIN = "${WORKSPACE}/bin"  // Nouveau répertoire pour Docker
     }
 
     stages {
         stage('Install Docker') {
             steps {
                 script {
-                    // Installer Docker CLI
+                    // Installer Docker dans le workspace
                     sh '''
+                        mkdir -p ${DOCKER_BIN}
                         curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-20.10.9.tgz -o docker.tgz
                         tar xzvf docker.tgz
-                        mv docker/docker /usr/local/bin/
+                        mv docker/docker ${DOCKER_BIN}/
                         rm -rf docker docker.tgz
-                        docker --version
+                        chmod +x ${DOCKER_BIN}/docker
+                        ${DOCKER_BIN}/docker --version
                     '''
                 }
             }
@@ -37,8 +40,12 @@ pipeline {
         stage('Tests') {
             steps {
                 script {
-                    sh 'docker run --rm -v ${WORKSPACE}/backend:/app node:18 sh -c "cd /app && npm install && npm test"'
-                    sh 'docker run --rm -v ${WORKSPACE}/frontend:/app node:18 sh -c "cd /app && npm install && npm test"'
+                    // Utiliser le Docker installé
+                    sh '''
+                        export PATH="${DOCKER_BIN}:$PATH"
+                        docker run --rm -v ${WORKSPACE}/backend:/app node:18 sh -c "cd /app && npm install && npm test"
+                        docker run --rm -v ${WORKSPACE}/frontend:/app node:18 sh -c "cd /app && npm install && npm test"
+                    '''
                 }
             }
         }
@@ -47,8 +54,11 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: env.SONAR_TOKEN_CREDENTIAL_ID, variable: 'SONAR_TOKEN')]) {
                     script {
-                        sh "docker run --rm -e SONAR_LOGIN=\$SONAR_TOKEN -v ${WORKSPACE}:/usr/src sonarsource/sonar-scanner-cli:4.8 -Dsonar.projectBaseDir=/usr/src/backend"
-                        sh "docker run --rm -e SONAR_LOGIN=\$SONAR_TOKEN -v ${WORKSPACE}:/usr/src sonarsource/sonar-scanner-cli:4.8 -Dsonar.projectBaseDir=/usr/src/frontend"
+                        sh '''
+                            export PATH="${DOCKER_BIN}:$PATH"
+                            docker run --rm -e SONAR_LOGIN=$SONAR_TOKEN -v ${WORKSPACE}:/usr/src sonarsource/sonar-scanner-cli:4.8 -Dsonar.projectBaseDir=/usr/src/backend
+                            docker run --rm -e SONAR_LOGIN=$SONAR_TOKEN -v ${WORKSPACE}:/usr/src sonarsource/sonar-scanner-cli:4.8 -Dsonar.projectBaseDir=/usr/src/frontend
+                        '''
                     }
                 }
             }
@@ -57,14 +67,17 @@ pipeline {
         stage('Build & Push') {
             steps {
                 script {
-                    sh "docker build -t ${env.BACKEND_IMAGE} ./backend"
-                    sh "docker build -t ${env.FRONTEND_IMAGE} ./frontend"
-                    
-                    withCredentials([usernamePassword(credentialsId: env.DOCKER_CREDENTIALS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASSWORD')]) {
-                        sh "echo ${env.DOCKER_PASSWORD} | docker login -u ${env.DOCKER_USER} --password-stdin ${env.REGISTRY}"
-                        sh "docker push ${env.BACKEND_IMAGE}"
-                        sh "docker push ${env.FRONTEND_IMAGE}"
-                    }
+                    sh '''
+                        export PATH="${DOCKER_BIN}:$PATH"
+                        docker build -t ${BACKEND_IMAGE} ./backend
+                        docker build -t ${FRONTEND_IMAGE} ./frontend
+                        
+                        withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS_ID}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASSWORD')]) {
+                            echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USER}" --password-stdin ${REGISTRY}
+                            docker push ${BACKEND_IMAGE}
+                            docker push ${FRONTEND_IMAGE}
+                        }
+                    '''
                 }
             }
         }
@@ -72,6 +85,7 @@ pipeline {
         stage('Scan with Trivy') {
             steps {
                 script {
+                    sh 'export PATH="${DOCKER_BIN}:$PATH"'
                     def scanImage = { image ->
                         sh "curl -s -X POST -H 'Content-Type: application/json' -d '{\"image\": \"${image}\"}' ${env.TRIVY_API_URL}"
                     }
