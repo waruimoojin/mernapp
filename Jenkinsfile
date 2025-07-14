@@ -6,25 +6,17 @@ pipeline {
         FRONTEND_IMAGE = "${REGISTRY}/frontend:latest"
         BACKEND_IMAGE = "${REGISTRY}/backend:latest"
         DOCKER_CREDENTIALS_ID = "docker-registry-credentials"
-        GIT_CREDENTIALS_ID = "git-credentials"
         SONARQUBE_SERVER = 'SonarQube'  // Nom du serveur SonarQube dans Jenkins
         TRIVY_API_URL = "http://trivy-server.my-domain/api/v1/scan/image"
+        SSH_CREDENTIALS_ID = "gitlab-ssh-key"  // L'ID de ta clé SSH dans Jenkins Credentials
     }
 
     stages {
-        stage('Prepare SSH') {
-            steps {
-                sh '''
-                    mkdir -p ~/.ssh
-                    ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
-                    chmod 644 ~/.ssh/known_hosts
-                '''
-            }
-        }
-
         stage('Checkout') {
             steps {
-                git credentialsId: env.GIT_CREDENTIALS_ID, url: 'git@gitlab.com:waruimoojin/mernapp.git', branch: 'main'
+                sshagent(credentials: [env.SSH_CREDENTIALS_ID]) {
+                    git url: 'git@gitlab.com:waruimoojin/mernapp.git', branch: 'main'
+                }
             }
         }
 
@@ -97,7 +89,7 @@ pipeline {
 
     post {
         always {
-            deleteDir() // Remplace cleanWs() si plugin non installé
+            cleanWs()
         }
         failure {
             mail to: 'chakib56@gmail.com',
