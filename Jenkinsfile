@@ -20,29 +20,19 @@ pipeline {
         stage('Setup Tools') {
             steps {
                 script {
-                    // Installer les outils sans apt-get
+                    // Solution simplifiée sans apt-get
                     sh '''
-                        # Installer Node.js
-                        curl -fsSL https://fnm.vercel.app/install | bash
-                        export PATH="$HOME/.local/share/fnm:$PATH"
-                        fnm install 18
-                        fnm use 18
+                        # Installer Node.js (méthode alternative)
+                        curl -fsSL https://nodejs.org/dist/v18.18.0/node-v18.18.0-linux-x64.tar.xz -o node.tar.xz
+                        tar -xJf node.tar.xz
+                        export PATH="$PWD/node-v18.18.0-linux-x64/bin:$PATH"
                         node -v
                         
                         # Installer Docker CLI uniquement
                         curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-20.10.9.tgz -o docker.tgz
                         tar xzvf docker.tgz
-                        mv docker/docker /usr/local/bin/
-                        rm -rf docker docker.tgz
+                        export PATH="$PWD/docker:$PATH"
                         docker --version
-                        
-                        # Installer SonarScanner
-                        SONAR_SCANNER_VERSION="4.8.0.2856"
-                        curl -fsSL https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SONAR_SCANNER_VERSION}-linux.zip -o sonar-scanner.zip
-                        unzip sonar-scanner.zip
-                        mv sonar-scanner-${SONAR_SCANNER_VERSION}-linux /opt/sonar-scanner
-                        ln -s /opt/sonar-scanner/bin/sonar-scanner /usr/local/bin/sonar-scanner
-                        sonar-scanner -v
                     '''
                 }
             }
@@ -73,19 +63,11 @@ pipeline {
 
         stage('SonarQube Analysis') {
             steps {
-                withCredentials([
-                    string(credentialsId: env.SONAR_TOKEN_CREDENTIAL_ID, 
-                            variable: 'SONAR_TOKEN')
-                ]) {
-                    dir('backend') {
-                        withSonarQubeEnv(env.SONARQUBE_SERVER) {
-                            sh 'sonar-scanner -Dsonar.login=$SONAR_TOKEN'
-                        }
-                    }
-                    dir('frontend') {
-                        withSonarQubeEnv(env.SONARQUBE_SERVER) {
-                            sh 'sonar-scanner -Dsonar.login=$SONAR_TOKEN'
-                        }
+                withCredentials([string(credentialsId: env.SONAR_TOKEN_CREDENTIAL_ID, variable: 'SONAR_TOKEN')]) {
+                    script {
+                        // Utilisation de l'image Docker pour SonarScanner
+                        sh "docker run --rm -e SONAR_LOGIN=\$SONAR_TOKEN -v ${WORKSPACE}:/usr/src sonarsource/sonar-scanner-cli:4.8 -Dsonar.projectBaseDir=/usr/src/backend"
+                        sh "docker run --rm -e SONAR_LOGIN=\$SONAR_TOKEN -v ${WORKSPACE}:/usr/src sonarsource/sonar-scanner-cli:4.8 -Dsonar.projectBaseDir=/usr/src/frontend"
                     }
                 }
             }
@@ -94,21 +76,22 @@ pipeline {
         stage('Build & Push Images') {
             steps {
                 script {
-                    // Utilisation de Buildah pour construire les images sans démon Docker
-                    sh '''
-                        # Installer Buildah
-                        apt-get update && apt-get install -y buildah || true
+                    // Utilisation de Kaniko pour builder les images
+                    sh """
+                        # Builder l'image backend
+                        /kaniko/executor \\
+                            --context \${WORKSPACE}/backend \\
+                            --destination \${BACKEND_IMAGE} \\
+                            --skip-tls-verify \\
+                            --dockerfile \${WORKSPACE}/backend/Dockerfile
                         
-                        # Build et push backend
-                        cd backend
-                        buildah bud -t ${BACKEND_IMAGE} .
-                        buildah push ${BACKEND_IMAGE} docker://${BACKEND_IMAGE}
-                        
-                        # Build et push frontend
-                        cd ../frontend
-                        buildah bud -t ${FRONTEND_IMAGE} .
-                        buildah push ${FRONTEND_IMAGE} docker://${FRONTEND_IMAGE}
-                    '''
+                        # Builder l'image frontend
+                        /kaniko/executor \\
+                            --context \${WORKSPACE}/frontend \\
+                            --destination \${FRONTEND_IMAGE} \\
+                            --skip-tls-verify \\
+                            --dockerfile \${WORKSPACE}/frontend/Dockerfile
+                    """
                 }
             }
         }
