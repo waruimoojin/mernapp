@@ -12,6 +12,16 @@ pipeline {
     }
 
     stages {
+        stage('Prepare SSH') {
+            steps {
+                sh '''
+                    mkdir -p ~/.ssh
+                    ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
+                    chmod 644 ~/.ssh/known_hosts
+                '''
+            }
+        }
+
         stage('Checkout') {
             steps {
                 git credentialsId: env.GIT_CREDENTIALS_ID, url: 'git@gitlab.com:waruimoojin/mernapp.git', branch: 'main'
@@ -28,16 +38,16 @@ pipeline {
         }
 
         stage('SonarQube Analysis') {
-        steps {
-           withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
-              dir('backend') {
-                  withSonarQubeEnv(env.SONARQUBE_SERVER) {
-                    sh 'sonar-scanner -Dsonar.login=$SONAR_TOKEN'
-                }
-            }
-            dir('frontend') {
-                withSonarQubeEnv(env.SONARQUBE_SERVER) {
-                    sh 'sonar-scanner -Dsonar.login=$SONAR_TOKEN'
+            steps {
+                withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                    dir('backend') {
+                        withSonarQubeEnv(env.SONARQUBE_SERVER) {
+                            sh 'sonar-scanner -Dsonar.login=$SONAR_TOKEN'
+                        }
+                    }
+                    dir('frontend') {
+                        withSonarQubeEnv(env.SONARQUBE_SERVER) {
+                            sh 'sonar-scanner -Dsonar.login=$SONAR_TOKEN'
                         }
                     }
                 }
@@ -87,7 +97,7 @@ pipeline {
 
     post {
         always {
-            cleanWs()
+            deleteDir() // Remplace cleanWs() si plugin non installé
         }
         failure {
             mail to: 'chakib56@gmail.com',
