@@ -1,62 +1,30 @@
 pipeline {
     agent any
 
-    options {
-        skipDefaultCheckout true
-    }
-
     environment {
         REGISTRY = "registry.gitlab.com"
         FRONTEND_IMAGE = "${REGISTRY}/frontend:latest"
         BACKEND_IMAGE = "${REGISTRY}/backend:latest"
         DOCKER_CREDENTIALS_ID = "gitlab-registry-credentials"
         SONARQUBE_SERVER = 'SonarQube'
-        SONAR_TOKEN_CREDENTIAL_ID = "sonarquibe-token"
+        SONAR_TOKEN_CREDENTIAL_ID = "sonarqube-token"
         TRIVY_API_URL = "http://trivy-server.my-domain/api/v1/scan/image"
         GIT_HTTPS_CREDENTIALS_ID = "gitlab-https-token"
     }
 
     stages {
-        stage('Setup Tools') {
-            steps {
-                script {
-                    // Solution simplifiée sans apt-get
-                    sh '''
-                        # Installer Node.js (méthode alternative)
-                        curl -fsSL https://nodejs.org/dist/v18.18.0/node-v18.18.0-linux-x64.tar.xz -o node.tar.xz
-                        tar -xJf node.tar.xz
-                        export PATH="$PWD/node-v18.18.0-linux-x64/bin:$PATH"
-                        node -v
-                        
-                        # Installer Docker CLI uniquement
-                        curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-20.10.9.tgz -o docker.tgz
-                        tar xzvf docker.tgz
-                        export PATH="$PWD/docker:$PATH"
-                        docker --version
-                    '''
-                }
-            }
-        }
-
         stage('Checkout') {
             steps {
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: 'main']],
-                    extensions: [],
-                    userRemoteConfigs: [[
-                        url: 'https://gitlab.com/waruimoojin/mernapp.git',
-                        credentialsId: env.GIT_HTTPS_CREDENTIALS_ID
-                    ]]
-                ])
+                checkout([$class: 'GitSCM', branches: [[name: '*/main']], userRemoteConfigs: [[url: 'https://gitlab.com/waruimoojin/mernapp.git', credentialsId: env.GIT_HTTPS_CREDENTIALS_ID]]])
             }
         }
 
         stage('Tests') {
             steps {
                 script {
-                    sh 'cd backend && npm install && npm test'
-                    sh 'cd frontend && npm install && npm test'
+                    // Utilisation des images Node pour les tests
+                    sh 'docker run --rm -v ${WORKSPACE}/backend:/app node:18 sh -c "cd /app && npm install && npm test"'
+                    sh 'docker run --rm -v ${WORKSPACE}/frontend:/app node:18 sh -c "cd /app && npm install && npm test"'
                 }
             }
         }
@@ -65,7 +33,7 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: env.SONAR_TOKEN_CREDENTIAL_ID, variable: 'SONAR_TOKEN')]) {
                     script {
-                        // Utilisation de l'image Docker pour SonarScanner
+                        // Analyse avec conteneur SonarScanner
                         sh "docker run --rm -e SONAR_LOGIN=\$SONAR_TOKEN -v ${WORKSPACE}:/usr/src sonarsource/sonar-scanner-cli:4.8 -Dsonar.projectBaseDir=/usr/src/backend"
                         sh "docker run --rm -e SONAR_LOGIN=\$SONAR_TOKEN -v ${WORKSPACE}:/usr/src sonarsource/sonar-scanner-cli:4.8 -Dsonar.projectBaseDir=/usr/src/frontend"
                     }
@@ -73,42 +41,30 @@ pipeline {
             }
         }
 
-        stage('Build & Push Images') {
+        stage('Build & Push') {
             steps {
                 script {
-                    // Utilisation de Kaniko pour builder les images
-                    sh """
-                        # Builder l'image backend
-                        /kaniko/executor \\
-                            --context \${WORKSPACE}/backend \\
-                            --destination \${BACKEND_IMAGE} \\
-                            --skip-tls-verify \\
-                            --dockerfile \${WORKSPACE}/backend/Dockerfile
-                        
-                        # Builder l'image frontend
-                        /kaniko/executor \\
-                            --context \${WORKSPACE}/frontend \\
-                            --destination \${FRONTEND_IMAGE} \\
-                            --skip-tls-verify \\
-                            --dockerfile \${WORKSPACE}/frontend/Dockerfile
-                    """
+                    // Build avec Docker
+                    sh "docker build -t ${env.BACKEND_IMAGE} ./backend"
+                    sh "docker build -t ${env.FRONTEND_IMAGE} ./frontend"
+                    
+                    // Push avec les credentials
+                    withCredentials([usernamePassword(credentialsId: env.DOCKER_CREDENTIALS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASSWORD')]) {
+                        sh "echo ${env.DOCKER_PASSWORD} | docker login -u ${env.DOCKER_USER} --password-stdin ${env.REGISTRY}"
+                        sh "docker push ${env.BACKEND_IMAGE}"
+                        sh "docker push ${env.FRONTEND_IMAGE}"
+                    }
                 }
             }
         }
 
-        stage('Scan Images with Trivy API') {
+        stage('Scan with Trivy') {
             steps {
                 script {
+                    // Scan via API Trivy
                     def scanImage = { image ->
-                        echo "Scanning image ${image} with Trivy API"
-                        sh """
-                            curl -s -X POST \
-                            -H 'Content-Type: application/json' \
-                            -d '{"image": "${image}"}' \
-                            ${env.TRIVY_API_URL}
-                        """
+                        sh "curl -s -X POST -H 'Content-Type: application/json' -d '{\"image\": \"${image}\"}' ${env.TRIVY_API_URL}"
                     }
-
                     scanImage(env.BACKEND_IMAGE)
                     scanImage(env.FRONTEND_IMAGE)
                 }
