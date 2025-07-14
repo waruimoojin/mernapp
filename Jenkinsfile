@@ -18,15 +18,15 @@ pipeline {
             steps {
                 script {
                     // Installer Docker dans le workspace
-                    sh '''
-                        mkdir -p ${DOCKER_BIN}
-                        curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-20.10.9.tgz -o docker.tgz
-                        tar xzvf docker.tgz
-                        mv docker/docker ${DOCKER_BIN}/
-                        rm -rf docker docker.tgz
-                        chmod +x ${DOCKER_BIN}/docker
-                        ${DOCKER_BIN}/docker --version
-                    '''
+                     sh '''
+                        # Ajouter l'utilisateur jenkins au groupe docker
+                        sudo usermod -aG docker jenkins
+                        # Redémarrer le service docker (si possible)
+                        sudo service docker restart || true
+                        # Exécuter les tests
+                        docker run --rm -v ${WORKSPACE}/backend:/app node:18 sh -c "cd /app && npm install && npm test"
+                        docker run --rm -v ${WORKSPACE}/frontend:/app node:18 sh -c "cd /app && npm install && npm test"
+            '''
                 }
             }
         }
