@@ -11,9 +11,9 @@ pipeline {
         BACKEND_IMAGE = "${REGISTRY}/backend:latest"
         DOCKER_CREDENTIALS_ID = "gitlab-registry-credentials"
         SONARQUBE_SERVER = 'SonarQube'
-        SONAR_TOKEN_CREDENTIAL_ID = "sonarquibe-token"
+        SONAR_TOKEN_CREDENTIAL_ID = "sonarqube-token"
         TRIVY_API_URL = "http://trivy-server.my-domain/api/v1/scan/image"
-        GIT_HTTPS_CREDENTIALS_ID = "gitlab-https-token"  // Nouveau credential HTTPS
+        GIT_HTTPS_CREDENTIALS_ID = "gitlab-https-token"
     }
 
     stages {
@@ -28,6 +28,20 @@ pipeline {
                         credentialsId: env.GIT_HTTPS_CREDENTIALS_ID
                     ]]
                 ])
+            }
+        }
+
+        stage('Install Node.js') {
+            steps {
+                script {
+                    // Installer Node.js et npm
+                    sh '''
+                        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+                        apt-get install -y nodejs
+                        node -v
+                        npm -v
+                    '''
+                }
             }
         }
 
@@ -63,6 +77,13 @@ pipeline {
         stage('Build & Push Docker Images') {
             steps {
                 script {
+                    // Installer Docker
+                    sh '''
+                        curl -fsSL https://get.docker.com -o get-docker.sh
+                        sh get-docker.sh
+                        docker version
+                    '''
+                    
                     docker.withRegistry("https://${env.REGISTRY}", env.DOCKER_CREDENTIALS_ID) {
                         def backendImage = docker.build(env.BACKEND_IMAGE, './backend')
                         backendImage.push()
@@ -107,11 +128,11 @@ pipeline {
         }
         failure {
             script {
-                // Solution temporaire pour les emails
                 echo "Build failed! Sending email to admin"
-                mail to: 'chakib56@gmail.com',
-                     subject: "BUILD FAILED: ${currentBuild.fullDisplayName}",
-                     body: "Check build: ${env.BUILD_URL}"
+                // Solution temporaire pour les emails
+                emailext body: "Check build: ${env.BUILD_URL}",
+                         subject: "BUILD FAILED: ${currentBuild.fullDisplayName}",
+                         to: 'chakib56@gmail.com'
             }
         }
     }
