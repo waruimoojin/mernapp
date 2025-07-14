@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     options {
-        skipDefaultCheckout true  
+        skipDefaultCheckout true
     }
 
     environment {
@@ -11,33 +11,23 @@ pipeline {
         BACKEND_IMAGE = "${REGISTRY}/backend:latest"
         DOCKER_CREDENTIALS_ID = "gitlab-registry-credentials"
         SONARQUBE_SERVER = 'SonarQube'
-        SONAR_TOKEN_CREDENTIAL_ID = "sonarqube-token"
+        SONAR_TOKEN_CREDENTIAL_ID = "sonarquibe-token"
         TRIVY_API_URL = "http://trivy-server.my-domain/api/v1/scan/image"
-        SSH_CREDENTIALS_ID = "gitlab-ssh-key"
+        GIT_HTTPS_CREDENTIALS_ID = "gitlab-https-token"  // Nouveau credential HTTPS
     }
 
     stages {
-        stage('Init') {
-            steps {
-                script {
-                    echo "Using SSH credentials: ${env.SSH_CREDENTIALS_ID}"
-                    // Test de la connexion SSH
-                    sshagent(credentials: [env.SSH_CREDENTIALS_ID]) {
-                        sh 'ssh -o StrictHostKeyChecking=no -T git@gitlab.com'
-                    }
-                }
-            }
-        }
-
         stage('Checkout') {
             steps {
-                sshagent(credentials: [env.SSH_CREDENTIALS_ID]) {
-                    git(
-                        url: 'git@gitlab.com:waruimoojin/mernapp.git',
-                        branch: 'main',
-                        credentialsId: env.SSH_CREDENTIALS_ID
-                    )
-                }
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: 'main']],
+                    extensions: [],
+                    userRemoteConfigs: [[
+                        url: 'https://gitlab.com/waruimoojin/mernapp.git',
+                        credentialsId: env.GIT_HTTPS_CREDENTIALS_ID
+                    ]]
+                ])
             }
         }
 
@@ -52,7 +42,10 @@ pipeline {
 
         stage('SonarQube Analysis') {
             steps {
-                withCredentials([string(credentialsId: env.SONAR_TOKEN_CREDENTIAL_ID, variable: 'SONAR_TOKEN')]) {
+                withCredentials([
+                    string(credentialsId: env.SONAR_TOKEN_CREDENTIAL_ID, 
+                            variable: 'SONAR_TOKEN')
+                ]) {
                     dir('backend') {
                         withSonarQubeEnv(env.SONARQUBE_SERVER) {
                             sh 'sonar-scanner -Dsonar.login=$SONAR_TOKEN'
@@ -106,23 +99,6 @@ pipeline {
                 }
             }
         }
-
-        // Stage optionnel pour debug des credentials
-        stage('List Credentials') {
-            steps {
-                script {
-                    echo "Listing available credentials:"
-                    def creds = []
-                    com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
-                        com.cloudbees.plugins.credentials.common.StandardCredentials.class,
-                        Jenkins.instance
-                    ).each { 
-                        creds << "ID: ${it.id} | Type: ${it.getClass().getSimpleName()}"
-                    }
-                    echo "Credentials disponibles:\n${creds.join('\n')}"
-                }
-            }
-        }
     }
 
     post {
@@ -130,9 +106,13 @@ pipeline {
             cleanWs()
         }
         failure {
-            mail to: 'chakib56@gmail.com',
-                 subject: "Build Jenkins #${env.BUILD_NUMBER} échoué",
-                 body: "Le build Jenkins a échoué. Voir les logs : ${env.BUILD_URL}"
+            script {
+                // Solution temporaire pour les emails
+                echo "Build failed! Sending email to admin"
+                mail to: 'chakib56@gmail.com',
+                     subject: "BUILD FAILED: ${currentBuild.fullDisplayName}",
+                     body: "Check build: ${env.BUILD_URL}"
+            }
         }
     }
 }
