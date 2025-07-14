@@ -10,13 +10,16 @@ pipeline {
         TRIVY_API_URL = "http://trivy-server.my-domain/api/v1/scan/image"
         SSH_CREDENTIALS_ID = "gitlab-ssh-key"  // L'ID de ta clé SSH dans Jenkins Credentials
     }
-    steps {
-        script {
-         echo "SSH_CREDENTIALS_ID=${env.SSH_CREDENTIALS_ID}"
-      }
-  }
 
     stages {
+        stage('Init') {
+            steps {
+                script {
+                    echo "SSH_CREDENTIALS_ID=${env.SSH_CREDENTIALS_ID}"
+                }
+            }
+        }
+
         stage('Checkout') {
             steps {
                 sshagent(credentials: [env.SSH_CREDENTIALS_ID]) {
