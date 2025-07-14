@@ -92,5 +92,14 @@ pipeline {
         }
     }
 
-
+    post {
+        always {
+            cleanWs()
+        }
+        failure {
+            mail to: 'chakib56@gmail.com',
+                 subject: "Build Jenkins #${env.BUILD_NUMBER} échoué",
+                 body: "Le build Jenkins a échoué. Voir les logs : ${env.BUILD_URL}"
+        }
+    }
 }
