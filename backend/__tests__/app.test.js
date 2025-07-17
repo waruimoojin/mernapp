@@ -1,5 +1,5 @@
 const request = require('supertest');
-const app = require('../app'); // Importez votre application Express
+const app = require('../server'); // Importez votre application Express
 
 // Test d'une route GET
 describe('GET /api', () => {
