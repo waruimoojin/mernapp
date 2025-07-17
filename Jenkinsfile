@@ -4,10 +4,12 @@ pipeline {
             yaml '''
 apiVersion: v1
 kind: Pod
+metadata:
+  name: jenkins-agent
 spec:
   containers:
   - name: nodejs
-    image: node:20-alpine
+    image: node:20-alpine 
     command: ["cat"]
     tty: true
     volumeMounts:
@@ -28,10 +30,26 @@ spec:
         }
     }
 
+    environment {
+        REGISTRY = "registry.gitlab.com"
+        PROJECT_PATH = "waruimoojin/mernapp"
+        FRONTEND_IMAGE = "${REGISTRY}/${PROJECT_PATH}/frontend"
+        BACKEND_IMAGE = "${REGISTRY}/${PROJECT_PATH}/backend"
+        DOCKER_CREDENTIALS_ID = "gitlab-registry-credentials"
+        GIT_CREDENTIALS_ID = "gitlab-https-token"
+    }
+
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: '*/main']],
+                    userRemoteConfigs: [[
+                        url: 'https://gitlab.com/waruimoojin/mernapp.git',
+                        credentialsId: env.GIT_CREDENTIALS_ID
+                    ]]
+                ])
             }
         }
 
@@ -51,17 +69,6 @@ spec:
                                         @babel/preset-env \
                                         @babel/preset-react \
                                         react-router-dom
-                                    
-                                    # Configuration Jest pour React
-                                    echo 'module.exports = {
-                                      preset: "react-app",
-                                      testEnvironment: "jsdom",
-                                      setupFilesAfterEnv: ["<rootDir>/src/setupTests.js"],
-                                      moduleNameMapper: {
-                                        "^react-router-dom$": "<rootDir>/node_modules/react-router-dom",
-                                        "\\.(css|less)$": "identity-obj-proxy"
-                                      }
-                                    };' > jest.config.js
                                 '''
                             }
                         }
@@ -82,32 +89,28 @@ spec:
             }
         }
 
-        stage('Run Tests') {
+         stage('Run Tests') {
             parallel {
                 stage('Frontend Tests') {
                     steps {
                         container('nodejs') {
                             dir('frontend') {
                                 sh '''
-                                    # Création fichier de test si inexistant
-                                    if [ ! -f "src/App.test.js" ]; then
-                                        echo "import { render, screen } from '@testing-library/react';
-                                        import App from './App';
-                                        
-                                        test('renders without crashing', () => {
-                                          render(<App />);
-                                        });" > src/App.test.js
-                                    fi
-                                    
-                                    npm test -- --ci --coverage --reporters=default --reporters=jest-junit
+                                    # Configuration spécifique pour Jest
+                                    echo 'module.exports = {
+                                      testResultsProcessor: "jest-junit",
+                                      reporters: [
+                                        "default",
+                                        ["jest-junit", {
+                                          outputDirectory: "test-results",
+                                          outputName: "junit.xml"
+                                        }]
+                                      ]
+                                    };' > jest.config.js
+
+                                    npm test -- --ci --coverage
                                 '''
-                                junit 'frontend/junit.xml'
-                                publishHTML target: [
-                                    allowMissing: true,
-                                    reportDir: 'frontend/coverage/lcov-report',
-                                    reportFiles: 'index.html',
-                                    reportName: 'Frontend Coverage'
-                                ]
+                                junit 'frontend/test-results/junit.xml'
                             }
                         }
                     }
@@ -117,23 +120,21 @@ spec:
                         container('nodejs') {
                             dir('backend') {
                                 sh '''
-                                    # Création fichier de test si inexistant
-                                    if [ ! -f "__tests__/app.test.js" ]; then
-                                        mkdir -p __tests__
-                                        echo "const request = require('supertest');
-                                        const app = require('../app');
-                                        
-                                        describe('Basic API tests', () => {
-                                          it('should respond on /', async () => {
-                                            const res = await request(app).get('/');
-                                            expect(res.statusCode).toEqual(200);
-                                          });
-                                        });" > __tests__/app.test.js
-                                    fi
-                                    
-                                    npm test -- --ci --coverage --reporters=default --reporters=jest-junit
+                                     # Configuration Jest pour le backend
+                                    echo 'module.exports = {
+                                      testResultsProcessor: "jest-junit",
+                                      reporters: [
+                                        "default",
+                                        ["jest-junit", {
+                                          outputDirectory: "test-results",
+                                          outputName: "junit.xml"
+                                        }]
+                                      ]
+                                    };' > jest.config.js
+
+                                    npm test -- --ci --coverage
                                 '''
-                                junit 'backend/junit.xml'
+                                junit 'backend/test-results/junit.xml'
                             }
                         }
                     }
@@ -142,24 +143,23 @@ spec:
         }
 
         stage('Build & Push') {
-            when {
-                expression { !currentBuild.result || currentBuild.result == 'SUCCESS' }
-            }
             parallel {
                 stage('Backend') {
                     steps {
                         container('docker') {
-                            withCredentials([usernamePassword(
-                                credentialsId: env.DOCKER_CREDENTIALS_ID,
-                                usernameVariable: 'DOCKER_USERNAME',
-                                passwordVariable: 'DOCKER_PASSWORD'
-                            )]) {
-                                sh '''
-                                    echo $DOCKER_PASSWORD | docker login $REGISTRY -u $DOCKER_USERNAME --password-stdin
-                                    cd backend
-                                    docker build -t ${BACKEND_IMAGE}:${BUILD_NUMBER} .
-                                    docker push ${BACKEND_IMAGE}:${BUILD_NUMBER}
-                                '''
+                            script {
+                                withCredentials([usernamePassword(
+                                    credentialsId: env.DOCKER_CREDENTIALS_ID,
+                                    usernameVariable: 'DOCKER_USERNAME',
+                                    passwordVariable: 'DOCKER_PASSWORD'
+                                )]) {
+                                    sh '''
+                                        echo $DOCKER_PASSWORD | docker login $REGISTRY -u $DOCKER_USERNAME --password-stdin
+                                        cd backend
+                                        docker build -t ${BACKEND_IMAGE}:${BUILD_NUMBER} .
+                                        docker push ${BACKEND_IMAGE}:${BUILD_NUMBER}
+                                    '''
+                                }
                             }
                         }
                     }
@@ -167,17 +167,19 @@ spec:
                 stage('Frontend') {
                     steps {
                         container('docker') {
-                            withCredentials([usernamePassword(
-                                credentialsId: env.DOCKER_CREDENTIALS_ID,
-                                usernameVariable: 'DOCKER_USERNAME',
-                                passwordVariable: 'DOCKER_PASSWORD'
-                            )]) {
-                                sh '''
-                                    echo $DOCKER_PASSWORD | docker login $REGISTRY -u $DOCKER_USERNAME --password-stdin
-                                    cd frontend
-                                    docker build -t ${FRONTEND_IMAGE}:${BUILD_NUMBER} .
-                                    docker push ${FRONTEND_IMAGE}:${BUILD_NUMBER}
-                                '''
+                            script {
+                                withCredentials([usernamePassword(
+                                    credentialsId: env.DOCKER_CREDENTIALS_ID,
+                                    usernameVariable: 'DOCKER_USERNAME',
+                                    passwordVariable: 'DOCKER_PASSWORD'
+                                )]) {
+                                    sh '''
+                                        echo $DOCKER_PASSWORD | docker login $REGISTRY -u $DOCKER_USERNAME --password-stdin
+                                        cd frontend
+                                        docker build -t ${FRONTEND_IMAGE}:${BUILD_NUMBER} .
+                                        docker push ${FRONTEND_IMAGE}:${BUILD_NUMBER}
+                                    '''
+                                }
                             }
                         }
                     }
@@ -188,11 +190,14 @@ spec:
 
     post {
         always {
-            archiveArtifacts artifacts: '**/junit.xml,**/coverage/**/*'
+            archiveArtifacts artifacts: '**/coverage/**/*,**/junit.xml'
             cleanWs()
         }
         failure {
-            echo "Build failed - ${BUILD_URL}"
+            script {
+                // Solution simplifiée pour les notifications
+                echo "Build failed - ${BUILD_URL}"
+            }
         }
     }
 }
