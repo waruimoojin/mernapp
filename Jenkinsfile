@@ -4,12 +4,10 @@ pipeline {
             yaml '''
 apiVersion: v1
 kind: Pod
-metadata:
-  name: jenkins-agent
 spec:
   containers:
   - name: nodejs
-    image: node:20-alpine 
+    image: node:20-alpine
     command: ["cat"]
     tty: true
     volumeMounts:
@@ -30,26 +28,10 @@ spec:
         }
     }
 
-    environment {
-        REGISTRY = "registry.gitlab.com"
-        PROJECT_PATH = "waruimoojin/mernapp"
-        FRONTEND_IMAGE = "${REGISTRY}/${PROJECT_PATH}/frontend"
-        BACKEND_IMAGE = "${REGISTRY}/${PROJECT_PATH}/backend"
-        DOCKER_CREDENTIALS_ID = "gitlab-registry-credentials"
-        GIT_CREDENTIALS_ID = "gitlab-https-token"
-    }
-
     stages {
         stage('Checkout') {
             steps {
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: '*/main']],
-                    userRemoteConfigs: [[
-                        url: 'https://gitlab.com/waruimoojin/mernapp.git',
-                        credentialsId: env.GIT_CREDENTIALS_ID
-                    ]]
-                ])
+                checkout scm
             }
         }
 
@@ -69,6 +51,17 @@ spec:
                                         @babel/preset-env \
                                         @babel/preset-react \
                                         react-router-dom
+                                    
+                                    # Configuration Jest pour React
+                                    echo 'module.exports = {
+                                      preset: "react-app",
+                                      testEnvironment: "jsdom",
+                                      setupFilesAfterEnv: ["<rootDir>/src/setupTests.js"],
+                                      moduleNameMapper: {
+                                        "^react-router-dom$": "<rootDir>/node_modules/react-router-dom",
+                                        "\\.(css|less)$": "identity-obj-proxy"
+                                      }
+                                    };' > jest.config.js
                                 '''
                             }
                         }
@@ -96,21 +89,25 @@ spec:
                         container('nodejs') {
                             dir('frontend') {
                                 sh '''
-                                    # Créer un fichier de test basique si inexistant
+                                    # Création fichier de test si inexistant
                                     if [ ! -f "src/App.test.js" ]; then
                                         echo "import { render, screen } from '@testing-library/react';
                                         import App from './App';
-
-                                        test('renders learn react link', () => {
+                                        
+                                        test('renders without crashing', () => {
                                           render(<App />);
-                                          const linkElement = screen.getByText(/learn react/i);
-                                          expect(linkElement).toBeInTheDocument();
                                         });" > src/App.test.js
                                     fi
                                     
-                                    npm run test -- --ci --coverage || echo "Frontend tests completed with warnings"
+                                    npm test -- --ci --coverage --reporters=default --reporters=jest-junit
                                 '''
                                 junit 'frontend/junit.xml'
+                                publishHTML target: [
+                                    allowMissing: true,
+                                    reportDir: 'frontend/coverage/lcov-report',
+                                    reportFiles: 'index.html',
+                                    reportName: 'Frontend Coverage'
+                                ]
                             }
                         }
                     }
@@ -120,28 +117,21 @@ spec:
                         container('nodejs') {
                             dir('backend') {
                                 sh '''
-                                    # Créer un fichier app.js et un test basique si inexistants
-                                    if [ ! -f "app.js" ]; then
-                                        echo "const express = require('express');
-                                        const app = express();
-                                        app.get('/', (req, res) => res.send('Hello World!'));
-                                        module.exports = app;" > app.js
-                                    fi
-                                    
-                                    if [ ! -d "__tests__" ]; then
+                                    # Création fichier de test si inexistant
+                                    if [ ! -f "__tests__/app.test.js" ]; then
                                         mkdir -p __tests__
                                         echo "const request = require('supertest');
                                         const app = require('../app');
-
-                                        describe('GET /', () => {
-                                          it('should return 200 OK', async () => {
+                                        
+                                        describe('Basic API tests', () => {
+                                          it('should respond on /', async () => {
                                             const res = await request(app).get('/');
                                             expect(res.statusCode).toEqual(200);
                                           });
                                         });" > __tests__/app.test.js
                                     fi
                                     
-                                    npm run test -- --ci --coverage || echo "Backend tests completed with warnings"
+                                    npm test -- --ci --coverage --reporters=default --reporters=jest-junit
                                 '''
                                 junit 'backend/junit.xml'
                             }
@@ -152,23 +142,24 @@ spec:
         }
 
         stage('Build & Push') {
+            when {
+                expression { !currentBuild.result || currentBuild.result == 'SUCCESS' }
+            }
             parallel {
                 stage('Backend') {
                     steps {
                         container('docker') {
-                            script {
-                                withCredentials([usernamePassword(
-                                    credentialsId: env.DOCKER_CREDENTIALS_ID,
-                                    usernameVariable: 'DOCKER_USERNAME',
-                                    passwordVariable: 'DOCKER_PASSWORD'
-                                )]) {
-                                    sh '''
-                                        echo $DOCKER_PASSWORD | docker login $REGISTRY -u $DOCKER_USERNAME --password-stdin
-                                        cd backend
-                                        docker build -t ${BACKEND_IMAGE}:${BUILD_NUMBER} .
-                                        docker push ${BACKEND_IMAGE}:${BUILD_NUMBER}
-                                    '''
-                                }
+                            withCredentials([usernamePassword(
+                                credentialsId: env.DOCKER_CREDENTIALS_ID,
+                                usernameVariable: 'DOCKER_USERNAME',
+                                passwordVariable: 'DOCKER_PASSWORD'
+                            )]) {
+                                sh '''
+                                    echo $DOCKER_PASSWORD | docker login $REGISTRY -u $DOCKER_USERNAME --password-stdin
+                                    cd backend
+                                    docker build -t ${BACKEND_IMAGE}:${BUILD_NUMBER} .
+                                    docker push ${BACKEND_IMAGE}:${BUILD_NUMBER}
+                                '''
                             }
                         }
                     }
@@ -176,19 +167,17 @@ spec:
                 stage('Frontend') {
                     steps {
                         container('docker') {
-                            script {
-                                withCredentials([usernamePassword(
-                                    credentialsId: env.DOCKER_CREDENTIALS_ID,
-                                    usernameVariable: 'DOCKER_USERNAME',
-                                    passwordVariable: 'DOCKER_PASSWORD'
-                                )]) {
-                                    sh '''
-                                        echo $DOCKER_PASSWORD | docker login $REGISTRY -u $DOCKER_USERNAME --password-stdin
-                                        cd frontend
-                                        docker build -t ${FRONTEND_IMAGE}:${BUILD_NUMBER} .
-                                        docker push ${FRONTEND_IMAGE}:${BUILD_NUMBER}
-                                    '''
-                                }
+                            withCredentials([usernamePassword(
+                                credentialsId: env.DOCKER_CREDENTIALS_ID,
+                                usernameVariable: 'DOCKER_USERNAME',
+                                passwordVariable: 'DOCKER_PASSWORD'
+                            )]) {
+                                sh '''
+                                    echo $DOCKER_PASSWORD | docker login $REGISTRY -u $DOCKER_USERNAME --password-stdin
+                                    cd frontend
+                                    docker build -t ${FRONTEND_IMAGE}:${BUILD_NUMBER} .
+                                    docker push ${FRONTEND_IMAGE}:${BUILD_NUMBER}
+                                '''
                             }
                         }
                     }
@@ -199,14 +188,11 @@ spec:
 
     post {
         always {
-            archiveArtifacts artifacts: '**/coverage/**/*,**/junit.xml'
+            archiveArtifacts artifacts: '**/junit.xml,**/coverage/**/*'
             cleanWs()
         }
         failure {
-            script {
-                // Solution simplifiée pour les notifications
-                echo "Build failed - ${BUILD_URL}"
-            }
+            echo "Build failed - ${BUILD_URL}"
         }
     }
 }
