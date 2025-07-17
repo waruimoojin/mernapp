@@ -80,23 +80,21 @@ spec:
                                         react-router-dom \
                                         jest-junit
                                 '''
-                                // Create jest.config.js upfront
+                                // Create jest.config.js using echo commands
                                 sh '''
-                                    cat > jest.config.js <<EOL
-                                    module.exports = {
-                                        testResultsProcessor: "jest-junit",
-                                        reporters: [
-                                            "default",
-                                            ["jest-junit", {
-                                                outputDirectory: "test-results",
-                                                outputName: "junit.xml"
-                                            }]
-                                        ],
-                                        collectCoverage: true,
-                                        coverageReporters: ["lcov", "text"],
-                                        coverageDirectory: "coverage"
-                                    };
-                                    EOL
+                                    echo "module.exports = {" > jest.config.js
+                                    echo "  testResultsProcessor: 'jest-junit'," >> jest.config.js
+                                    echo "  reporters: [" >> jest.config.js
+                                    echo "    'default'," >> jest.config.js
+                                    echo "    ['jest-junit', {" >> jest.config.js
+                                    echo "      outputDirectory: 'test-results'," >> jest.config.js
+                                    echo "      outputName: 'junit.xml'" >> jest.config.js
+                                    echo "    }]" >> jest.config.js
+                                    echo "  ]," >> jest.config.js
+                                    echo "  collectCoverage: true," >> jest.config.js
+                                    echo "  coverageReporters: ['lcov', 'text']," >> jest.config.js
+                                    echo "  coverageDirectory: 'coverage'" >> jest.config.js
+                                    echo "};" >> jest.config.js
                                 '''
                             }
                         }
@@ -110,23 +108,21 @@ spec:
                                     npm install
                                     npm install --save-dev jest supertest jest-junit
                                 '''
-                                // Create jest.config.js upfront
+                                // Create jest.config.js using echo commands
                                 sh '''
-                                    cat > jest.config.js <<EOL
-                                    module.exports = {
-                                        testResultsProcessor: "jest-junit",
-                                        reporters: [
-                                            "default",
-                                            ["jest-junit", {
-                                                outputDirectory: "test-results",
-                                                outputName: "junit.xml"
-                                            }]
-                                        ],
-                                        collectCoverage: true,
-                                        coverageReporters: ["lcov", "text"],
-                                        coverageDirectory: "coverage"
-                                    };
-                                    EOL
+                                    echo "module.exports = {" > jest.config.js
+                                    echo "  testResultsProcessor: 'jest-junit'," >> jest.config.js
+                                    echo "  reporters: [" >> jest.config.js
+                                    echo "    'default'," >> jest.config.js
+                                    echo "    ['jest-junit', {" >> jest.config.js
+                                    echo "      outputDirectory: 'test-results'," >> jest.config.js
+                                    echo "      outputName: 'junit.xml'" >> jest.config.js
+                                    echo "    }]" >> jest.config.js
+                                    echo "  ]," >> jest.config.js
+                                    echo "  collectCoverage: true," >> jest.config.js
+                                    echo "  coverageReporters: ['lcov', 'text']," >> jest.config.js
+                                    echo "  coverageDirectory: 'coverage'" >> jest.config.js
+                                    echo "};" >> jest.config.js
                                 '''
                             }
                         }
@@ -145,14 +141,13 @@ spec:
                                     mkdir -p test-results
                                     npm test -- --ci --coverage
                                 '''
-                                junit 'frontend/test-results/junit.xml'
-                                archiveArtifacts artifacts: 'frontend/coverage/**/*'
                             }
                         }
                     }
                     post {
                         always {
                             junit 'frontend/test-results/junit.xml'
+                            archiveArtifacts artifacts: 'frontend/coverage/**/*'
                         }
                     }
                 }
@@ -164,14 +159,13 @@ spec:
                                     mkdir -p test-results
                                     npm test -- --ci --coverage
                                 '''
-                                junit 'backend/test-results/junit.xml'
-                                archiveArtifacts artifacts: 'backend/coverage/**/*'
                             }
                         }
                     }
                     post {
                         always {
                             junit 'backend/test-results/junit.xml'
+                            archiveArtifacts artifacts: 'backend/coverage/**/*'
                         }
                     }
                 }
@@ -234,16 +228,16 @@ spec:
         }
         failure {
             script {
-                // Add notification logic here (Slack, email, etc.)
                 echo "Build failed - ${BUILD_URL}"
-                // Example for Slack:
+                // Uncomment to add Slack notifications
                 // slackSend color: 'danger', message: "Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${env.BUILD_URL})"
             }
         }
         success {
             script {
-                // Add success notification if needed
                 echo "Build succeeded - ${BUILD_URL}"
+                // Uncomment to add Slack notifications
+                // slackSend color: 'good', message: "Build Succeeded: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${env.BUILD_URL})"
             }
         }
     }
