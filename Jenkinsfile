@@ -35,14 +35,12 @@ spec:
       path: /var/run/docker.sock
 '''
         }
+    }
 
-        tools {
-            nodejs 'NodeJS_22.17.0'
-            docker 'Docker 20.10'
-            sonar 'SonarQube Scanner'
-
-
-        }
+    tools {
+        nodejs 'NodeJS_22.17.0'
+        docker 'Docker 20.10'
+        sonar 'SonarQube Scanner'
     }
 
     environment {
