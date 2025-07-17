@@ -15,17 +15,23 @@ spec:
     volumeMounts:
     - name: docker-sock
       mountPath: /var/run/docker.sock
+    - name: workspace-volume
+      mountPath: /home/jenkins/agent
   - name: docker
-    image: docker:20.10-cli
+    image: docker:20.10-dind
     command: ["cat"]
     tty: true
     volumeMounts:
     - name: docker-sock
       mountPath: /var/run/docker.sock
+    - name: workspace-volume
+      mountPath: /home/jenkins/agent
   volumes:
   - name: docker-sock
     hostPath:
       path: /var/run/docker.sock
+  - name: workspace-volume
+    emptyDir: {}
 '''
         }
     }
@@ -48,6 +54,9 @@ spec:
                     userRemoteConfigs: [[
                         url: 'https://gitlab.com/waruimoojin/mernapp.git',
                         credentialsId: env.GIT_CREDENTIALS_ID
+                    ]],
+                    extensions: [[
+                        $class: 'CleanCheckout'
                     ]]
                 ])
             }
@@ -68,7 +77,26 @@ spec:
                                         babel-jest \
                                         @babel/preset-env \
                                         @babel/preset-react \
-                                        react-router-dom
+                                        react-router-dom \
+                                        jest-junit
+                                '''
+                                // Create jest.config.js upfront
+                                sh '''
+                                    cat > jest.config.js <<EOL
+                                    module.exports = {
+                                        testResultsProcessor: "jest-junit",
+                                        reporters: [
+                                            "default",
+                                            ["jest-junit", {
+                                                outputDirectory: "test-results",
+                                                outputName: "junit.xml"
+                                            }]
+                                        ],
+                                        collectCoverage: true,
+                                        coverageReporters: ["lcov", "text"],
+                                        coverageDirectory: "coverage"
+                                    };
+                                    EOL
                                 '''
                             }
                         }
@@ -80,7 +108,25 @@ spec:
                             dir('backend') {
                                 sh '''
                                     npm install
-                                    npm install --save-dev jest supertest
+                                    npm install --save-dev jest supertest jest-junit
+                                '''
+                                // Create jest.config.js upfront
+                                sh '''
+                                    cat > jest.config.js <<EOL
+                                    module.exports = {
+                                        testResultsProcessor: "jest-junit",
+                                        reporters: [
+                                            "default",
+                                            ["jest-junit", {
+                                                outputDirectory: "test-results",
+                                                outputName: "junit.xml"
+                                            }]
+                                        ],
+                                        collectCoverage: true,
+                                        coverageReporters: ["lcov", "text"],
+                                        coverageDirectory: "coverage"
+                                    };
+                                    EOL
                                 '''
                             }
                         }
@@ -89,29 +135,24 @@ spec:
             }
         }
 
-         stage('Run Tests') {
+        stage('Run Tests') {
             parallel {
                 stage('Frontend Tests') {
                     steps {
                         container('nodejs') {
                             dir('frontend') {
                                 sh '''
-                                    # Configuration spécifique pour Jest
-                                    echo 'module.exports = {
-                                      testResultsProcessor: "jest-junit",
-                                      reporters: [
-                                        "default",
-                                        ["jest-junit", {
-                                          outputDirectory: "test-results",
-                                          outputName: "junit.xml"
-                                        }]
-                                      ]
-                                    };' > jest.config.js
-
+                                    mkdir -p test-results
                                     npm test -- --ci --coverage
                                 '''
                                 junit 'frontend/test-results/junit.xml'
+                                archiveArtifacts artifacts: 'frontend/coverage/**/*'
                             }
+                        }
+                    }
+                    post {
+                        always {
+                            junit 'frontend/test-results/junit.xml'
                         }
                     }
                 }
@@ -120,22 +161,17 @@ spec:
                         container('nodejs') {
                             dir('backend') {
                                 sh '''
-                                     # Configuration Jest pour le backend
-                                    echo 'module.exports = {
-                                      testResultsProcessor: "jest-junit",
-                                      reporters: [
-                                        "default",
-                                        ["jest-junit", {
-                                          outputDirectory: "test-results",
-                                          outputName: "junit.xml"
-                                        }]
-                                      ]
-                                    };' > jest.config.js
-
+                                    mkdir -p test-results
                                     npm test -- --ci --coverage
                                 '''
                                 junit 'backend/test-results/junit.xml'
+                                archiveArtifacts artifacts: 'backend/coverage/**/*'
                             }
+                        }
+                    }
+                    post {
+                        always {
+                            junit 'backend/test-results/junit.xml'
                         }
                     }
                 }
@@ -143,6 +179,9 @@ spec:
         }
 
         stage('Build & Push') {
+            when {
+                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+            }
             parallel {
                 stage('Backend') {
                     steps {
@@ -190,13 +229,21 @@ spec:
 
     post {
         always {
-            archiveArtifacts artifacts: '**/coverage/**/*,**/junit.xml'
+            archiveArtifacts artifacts: '**/coverage/**/*,**/test-results/**/*'
             cleanWs()
         }
         failure {
             script {
-                // Solution simplifiée pour les notifications
+                // Add notification logic here (Slack, email, etc.)
                 echo "Build failed - ${BUILD_URL}"
+                // Example for Slack:
+                // slackSend color: 'danger', message: "Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${env.BUILD_URL})"
+            }
+        }
+        success {
+            script {
+                // Add success notification if needed
+                echo "Build succeeded - ${BUILD_URL}"
             }
         }
     }
