@@ -9,7 +9,7 @@ metadata:
 spec:
   containers:
   - name: nodejs
-    image: node:18-alpine
+    image: node:20-alpine 
     command:
     - cat
     tty: true
@@ -85,9 +85,14 @@ spec:
                         container('nodejs') {
                             script {
                                 sh '''
-                                    cd backend
-                                    npm install
-                                    npm run test || echo "Backend tests completed with warnings"
+                                        cd backend
+                                        npm install
+                                        # Check if test script exists before running
+                                        if grep -q '"test":' package.json; then
+                                            npm run test || echo "Backend tests completed with warnings"
+                                         else
+                                            echo "No test script found in backend package.json"
+                                        fi
                                 '''
                             }
                         }
