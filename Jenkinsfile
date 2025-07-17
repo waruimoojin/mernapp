@@ -39,8 +39,7 @@ spec:
 
     tools {
         nodejs 'NodeJS_22.17.0'
-        docker 'Docker 20.10'
-        sonar 'SonarQube Scanner'
+    
     }
 
     environment {
