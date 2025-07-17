@@ -13,6 +13,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/notes', noteRoutes);
 // Connexion à MongoDB
+if (process.env.NODE_ENV !== 'test') {
 mongoose.connect(process.env.MONGO_URI)
 .then(() => console.log('✅ MongoDB connecté'))
 .catch(err => console.error('❌ Erreur de connexion à MongoDB:', err));
@@ -23,3 +24,6 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`✅ Serveur lancé sur le port ${PORT}`));
+
+}
+module.exports = app;

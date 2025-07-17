@@ -1,15 +1,19 @@
 const request = require('supertest');
-const app = require('../server'); // Updated path to server.js
+const app = require('../server');
 const mongoose = require('mongoose');
 
 describe('API Tests', () => {
     beforeAll(async () => {
         // Connect to test database
-        await mongoose.connect(process.env.MONGO_URI);
+        await mongoose.connect(process.env.MONGO_URI, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true
+        });
     });
 
     afterAll(async () => {
-        // Close database connection
+        // Clean up and close connections
+        await mongoose.connection.db.dropDatabase();
         await mongoose.disconnect();
     });
 
@@ -25,6 +29,7 @@ describe('API Tests', () => {
             const response = await request(app)
                 .post('/api/users')
                 .send({ name: 'John' });
+            expect(response.status).toBe(201);
             expect(response.body).toHaveProperty('id');
         });
     });

@@ -185,17 +185,59 @@ spec:
                     steps {
                         container('nodejs') {
                             dir('backend') {
-                                sh '''
-                                    mkdir -p test-results
-                                    npm test -- --ci --coverage
-                                '''
+                               sh '''
+                    # Create test environment file
+                    echo "MONGO_URI=mongodb://localhost:27017/testdb" > .env.test
+                    echo "PORT=5001" >> .env.test
+                    
+                    # Create jest config
+                    cat > jest.config.js << 'EOL'
+                    module.exports = {
+                        testResultsProcessor: 'jest-junit',
+                        reporters: [
+                            'default',
+                            ['jest-junit', {
+                                outputDirectory: 'test-results',
+                                outputName: 'junit.xml'
+                            }]
+                        ],
+                        collectCoverage: true,
+                        coverageReporters: ['lcov', 'text'],
+                        coverageDirectory: 'coverage',
+                        testEnvironment: 'node',
+                        globalSetup: '<rootDir>/jest.setup.js',
+                        globalTeardown: '<rootDir>/jest.teardown.js',
+                        setupFilesAfterEnv: ['<rootDir>/jest.setupAfterEnv.js']
+                    };
+                    EOL
+                    
+                    # Create setup files
+                    cat > jest.setup.js << 'EOL'
+                    const dotenv = require('dotenv');
+                    dotenv.config({ path: '.env.test' });
+                    EOL
+                    
+                    cat > jest.teardown.js << 'EOL'
+                    const mongoose = require('mongoose');
+                    module.exports = async () => {
+                        await mongoose.disconnect();
+                    };
+                    EOL
+                    
+                    cat > jest.setupAfterEnv.js << 'EOL'
+                    // Additional setup if needed
+                    EOL
+                    
+                    mkdir -p test-results
+                    NODE_ENV=test npm test -- --ci --coverage --detectOpenHandles
+                '''
                             }
                         }
                     }
                     post {
                         always {
-                            junit 'backend/test-results/junit.xml'
-                            archiveArtifacts artifacts: 'backend/coverage/**/*'
+                              junit 'backend/test-results/junit.xml'
+                                archiveArtifacts artifacts: 'backend/coverage/**/*,backend/test-results/**/*'
                         }
                     }
                 }
