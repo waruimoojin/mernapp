@@ -137,10 +137,40 @@ spec:
                     steps {
                         container('nodejs') {
                             dir('frontend') {
-                                sh '''
-                                    mkdir -p test-results
-                                    npm test -- --ci --coverage
-                                '''
+                                 sh '''
+                    npm install
+                    npm install --save-dev \
+                        @testing-library/react \
+                        @testing-library/jest-dom \
+                        jest \
+                        babel-jest \
+                        @babel/preset-env \
+                        @babel/preset-react \
+                        react-router-dom \
+                        jest-junit
+                    
+                    cat > jest.config.js << 'EOL'
+                    module.exports = {
+                        testResultsProcessor: 'jest-junit',
+                        reporters: [
+                            'default',
+                            ['jest-junit', {
+                                outputDirectory: 'test-results',
+                                outputName: 'junit.xml'
+                            }]
+                        ],
+                        collectCoverage: true,
+                        coverageReporters: ['lcov', 'text'],
+                        coverageDirectory: 'coverage',
+                        moduleNameMapper: {
+                            '^react-router-dom$': '<rootDir>/node_modules/react-router-dom',
+                            '^@/(.*)$': '<rootDir>/src/$1'
+                        },
+                        testEnvironment: 'jsdom',
+                        setupFilesAfterEnv: ['<rootDir>/src/setupTests.js']
+                    };
+                    EOL
+                '''
                             }
                         }
                     }
