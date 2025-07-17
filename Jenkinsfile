@@ -39,8 +39,6 @@ spec:
 
     tools {
         nodejs 'NodeJS_22.17.0'
-        sonarqube 'SonarQube_9.9.0'
-    
     }
 
     environment {
@@ -78,36 +76,130 @@ spec:
             }
         }
 
-        // Étape 2: Installation des dépendances et tests
-        stage('Install & Test') {
+        // Étape 2: Installation des dépendances et configuration des tests
+        stage('Setup Testing') {
             parallel {
-                stage('Backend Tests') {
+                stage('Frontend Setup') {
                     steps {
                         container('nodejs') {
                             script {
-                                sh '''
-                                        cd backend
-                                        npm install
-                                        # Check if test script exists before running
-                                        if grep -q '"test":' package.json; then
-                                            npm run test || echo "Backend tests completed with warnings"
-                                         else
-                                            echo "No test script found in backend package.json"
-                                        fi
-                                '''
+                                dir('frontend') {
+                                    sh '''
+                                        npm install --save-dev \
+                                            @testing-library/react \
+                                            @testing-library/jest-dom \
+                                            jest \
+                                            babel-jest \
+                                            @babel/preset-env \
+                                            @babel/preset-react \
+                                            jest-junit
+                                        
+                                        echo '{
+                                          "presets": ["@babel/preset-env", "@babel/preset-react"],
+                                          "plugins": ["@babel/plugin-transform-modules-commonjs"]
+                                        }' > babel.config.json
+                                        
+                                        echo 'module.exports = {
+                                          testEnvironment: "jsdom",
+                                          setupFilesAfterEnv: ["<rootDir>/src/setupTests.js"],
+                                          reporters: [
+                                            "default",
+                                            ["jest-junit", { outputDirectory: "test-results", outputName: "junit.xml" }]
+                                          ],
+                                          collectCoverage: true,
+                                          coverageReporters: ["lcov", "text"],
+                                          coverageDirectory: "coverage"
+                                        };' > jest.config.js
+                                    '''
+                                }
                             }
                         }
                     }
                 }
+                stage('Backend Setup') {
+                    steps {
+                        container('nodejs') {
+                            script {
+                                dir('backend') {
+                                    sh '''
+                                        npm install --save-dev jest supertest jest-junit
+                                        
+                                        echo 'module.exports = {
+                                          testEnvironment: "node",
+                                          reporters: [
+                                            "default",
+                                            ["jest-junit", { outputDirectory: "test-results", outputName: "junit.xml" }]
+                                          ],
+                                          collectCoverage: true,
+                                          coverageReporters: ["lcov", "text"],
+                                          coverageDirectory: "coverage"
+                                        };' > jest.config.js
+                                    '''
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Étape 3: Exécution des tests
+        stage('Run Tests') {
+            parallel {
                 stage('Frontend Tests') {
                     steps {
                         container('nodejs') {
                             script {
-                                sh '''
-                                    cd frontend
-                                    npm install
-                                    npm run test || echo "Frontend tests completed with warnings"
-                                '''
+                                dir('frontend') {
+                                    sh '''
+                                        npm run test -- --ci --coverage
+                                    '''
+                                    junit 'test-results/junit.xml'
+                                    publishHTML target: [
+                                        allowMissing: false,
+                                        alwaysLinkToLastBuild: false,
+                                        keepAll: true,
+                                        reportDir: 'coverage/lcov-report',
+                                        reportFiles: 'index.html',
+                                        reportName: 'Frontend Coverage Report'
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+                stage('Backend Tests') {
+                    steps {
+                        container('nodejs') {
+                            script {
+                                dir('backend') {
+                                    sh '''
+                                        # Crée un test de base si aucun test n'existe
+                                        if [ ! -d "__tests__" ]; then
+                                            mkdir -p __tests__
+                                            echo "const request = require('supertest');
+                                            const app = require('../app');
+
+                                            describe('GET /', () => {
+                                              it('should return 200 OK', async () => {
+                                                const res = await request(app).get('/');
+                                                expect(res.statusCode).toEqual(200);
+                                              });
+                                            });" > __tests__/app.test.js
+                                        fi
+                                        
+                                        npm run test -- --ci --coverage
+                                    '''
+                                    junit 'test-results/junit.xml'
+                                    publishHTML target: [
+                                        allowMissing: false,
+                                        alwaysLinkToLastBuild: false,
+                                        keepAll: true,
+                                        reportDir: 'coverage/lcov-report',
+                                        reportFiles: 'index.html',
+                                        reportName: 'Backend Coverage Report'
+                                    ]
+                                }
                             }
                         }
                     }
@@ -115,28 +207,26 @@ spec:
             }
         }
 
-        // Étape 3: Analyse SonarQube
+        // Étape 4: Analyse SonarQube
         stage('SonarQube Analysis') {
             steps {
                 container('sonar') {
                     withCredentials([string(credentialsId: env.SONAR_TOKEN_CREDENTIAL_ID, variable: 'SONAR_TOKEN')]) {
-                        withSonarQubeEnv(env.SONARQUBE_SERVER) {
-                            sh '''
-                                sonar-scanner \
-                                -Dsonar.projectKey=mernapp \
-                                -Dsonar.projectName="MERN Application" \
-                                -Dsonar.sources=. \
-                                -Dsonar.exclusions="**/node_modules/**,**/coverage/**,**/*.test.js" \
-                                -Dsonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info,backend/coverage/lcov.info \
-                                -Dsonar.login=$SONAR_TOKEN
-                            '''
-                        }
+                        sh '''
+                            sonar-scanner \
+                            -Dsonar.projectKey=mernapp \
+                            -Dsonar.projectName="MERN Application" \
+                            -Dsonar.sources=. \
+                            -Dsonar.exclusions="**/node_modules/**,**/coverage/**,**/*.test.js" \
+                            -Dsonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info,backend/coverage/lcov.info \
+                            -Dsonar.login=$SONAR_TOKEN
+                        '''
                     }
                 }
             }
         }
 
-        // Étape 4: Build et push des images Docker
+        // Étape 5: Build et push des images Docker
         stage('Build & Push Docker Images') {
             parallel {
                 stage('Backend Image') {
@@ -178,26 +268,18 @@ spec:
             }
         }
 
-        // Étape 5: Scan de sécurité avec Trivy
+        // Étape 6: Scan de sécurité avec Trivy
         stage('Security Scan with Trivy') {
             steps {
                 container('docker') {
                     script {
-                        // Installer Trivy dans le conteneur
                         sh '''
                             apk add --no-cache curl
                             curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
-                        '''
-                        
-                        // Scanner les images
-                        sh '''
-                            echo "Scanning backend image..."
-                            trivy image --exit-code 0 --severity HIGH,CRITICAL --format json -o backend-trivy-report.json ${BACKEND_IMAGE}:${BUILD_NUMBER}
                             
-                            echo "Scanning frontend image..."
+                            trivy image --exit-code 0 --severity HIGH,CRITICAL --format json -o backend-trivy-report.json ${BACKEND_IMAGE}:${BUILD_NUMBER}
                             trivy image --exit-code 0 --severity HIGH,CRITICAL --format json -o frontend-trivy-report.json ${FRONTEND_IMAGE}:${BUILD_NUMBER}
                             
-                            echo "Checking for critical vulnerabilities..."
                             trivy image --exit-code 1 --severity CRITICAL ${BACKEND_IMAGE}:${BUILD_NUMBER} || echo "Critical vulnerabilities found in backend"
                             trivy image --exit-code 1 --severity CRITICAL ${FRONTEND_IMAGE}:${BUILD_NUMBER} || echo "Critical vulnerabilities found in frontend"
                         '''
@@ -209,10 +291,7 @@ spec:
 
     post {
         always {
-            // Archiver les rapports
-            archiveArtifacts artifacts: '*-trivy-report.json', allowEmptyArchive: true
-            
-            // Nettoyage du workspace
+            archiveArtifacts artifacts: '**/test-results/*.xml,**/coverage/**/*,**/*-trivy-report.json', allowEmptyArchive: true
             cleanWs()
         }
         success {
@@ -220,25 +299,9 @@ spec:
         }
         failure {
             script {
-                // Utiliser mail au lieu d'emailext si le plugin n'est pas installé
-                try {
-                    emailext (
-                        subject: "Échec du build Jenkins - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                        body: """
-                            Le build ${env.BUILD_NUMBER} du job ${env.JOB_NAME} a échoué.
-                            Consultez les logs ici: ${env.BUILD_URL}
-                        """,
-                        to: 'votre-email@domaine.com'
-                    )
-                } catch (Exception e) {
-                    echo "Email notification failed: ${e.getMessage()}"
-                    // Fallback avec mail basique
-                    mail (
-                        to: 'votre-email@domaine.com',
-                        subject: "Échec du build Jenkins - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                        body: "Le build ${env.BUILD_NUMBER} du job ${env.JOB_NAME} a échoué. Consultez les logs ici: ${env.BUILD_URL}"
-                    )
-                }
+                mail to: 'votre-email@domaine.com',
+                     subject: "Échec du build - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                     body: "Voir les détails: ${env.BUILD_URL}"
             }
         }
     }
