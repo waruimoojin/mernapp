@@ -39,6 +39,7 @@ spec:
 
     tools {
         nodejs 'NodeJS_22.17.0'
+        sonarqube 'SonarQube_9.9.0'
     
     }
 
