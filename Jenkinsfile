@@ -201,7 +201,7 @@ stage('Frontend Tests') {
                 }
             }
         }
-    }
+    
 
     post {
         always {
