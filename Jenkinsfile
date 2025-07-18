@@ -126,7 +126,7 @@ spec:
                                         }
                                     };
                                     EOL
-                                    
+                                    ls -l backend/test-results/
                                     # Run tests
                                     CI=true npm test
                                 '''
@@ -162,7 +162,7 @@ spec:
                                     
                                     # Run tests
                                     npm test
-                                    ls -l backend/test-results/
+                                    
                                 '''
                             }
                         }
