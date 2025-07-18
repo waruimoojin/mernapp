@@ -70,6 +70,7 @@ spec:
                             dir('frontend') {
                                 sh '''
                                     npm install
+                                    npm install react-router-dom
                                     npm install --save-dev \
                                         @testing-library/react \
                                         @testing-library/jest-dom \
