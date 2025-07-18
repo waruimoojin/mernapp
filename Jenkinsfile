@@ -112,34 +112,30 @@ spec:
                         container('nodejs') {
                             dir('frontend') {
                                 sh '''
-                                    # Remove conflicting jest config
-                                    rm -f jest.config.js
-                                    
-                                    # Clear node_modules and reinstall
-                                    rm -rf node_modules
-                                    npm install
-                                    npm install react-router-dom --save --force
-                                    
-                                    # Explicitly configure jest in package.json
-                                    cat > package.json.tmp << 'EOL'
-                                    $(cat package.json | jq '. + {
-                                        "jest": {
-                                            "moduleNameMapper": {
-                                                "^react-router-dom$": "<rootDir>/node_modules/react-router-dom/dist/index.js"
-                                            },
-                                            "testEnvironment": "jsdom",
-                                            "setupFilesAfterEnv": ["<rootDir>/setupTests.js"]
+                                    # Configure Jest to output JUnit reports
+                                    echo "Configuring Jest..."
+                                    cat > jest.config.js << 'EOL'
+                                    module.exports = {
+                                        testEnvironment: 'jsdom',
+                                        reporters: [
+                                            'default',
+                                            ['jest-junit', {outputDirectory: 'test-results', outputName: 'junit.xml'}]
+                                        ],
+                                        moduleNameMapper: {
+                                            "^react-router-dom$": "<rootDir>/node_modules/react-router-dom/dist/index.js"
                                         }
-                                    }')
+                                    };
                                     EOL
-                                    mv package.json.tmp package.json
                                     
-                                    # Clear cache and run tests
-                                    npx jest --clearCache
+                                    # Run tests
                                     CI=true npm test
                                 '''
-                                junit 'junit.xml'
                             }
+                        }
+                    }
+                    post {
+                        always {
+                            junit 'frontend/test-results/junit.xml'
                         }
                     }
                 }
@@ -148,39 +144,31 @@ spec:
                         container('nodejs') {
                             dir('backend') {
                                 sh '''
-                                    # Clean install
-                                    rm -rf node_modules
-                                    npm install
-                                    
                                     # Create test environment
                                     echo "MONGO_URI=mongodb://localhost:27017/testdb" > .env.test
                                     
-                                    # Create complete jest.setup.js
-                                    cat > tests/jest.setup.js << 'EOL'
-                                    const { MongoMemoryServer } = require('mongodb-memory-server');
-                                    const mongoose = require('mongoose');
-                                    
-                                    let mongoServer;
-                                    
-                                    module.exports.setup = async () => {
-                                        mongoServer = await MongoMemoryServer.create();
-                                        const mongoUri = mongoServer.getUri();
-                                        process.env.MONGO_URI = mongoUri;
-                                        await mongoose.connect(mongoUri);
-                                        return mongoUri;
-                                    };
-                                    
-                                    module.exports.teardown = async () => {
-                                        await mongoose.disconnect();
-                                        if (mongoServer) await mongoServer.stop();
+                                    # Configure Jest to output JUnit reports
+                                    echo "Configuring Jest..."
+                                    cat > jest.config.js << 'EOL'
+                                    module.exports = {
+                                        testEnvironment: 'node',
+                                        reporters: [
+                                            'default',
+                                            ['jest-junit', {outputDirectory: 'test-results', outputName: 'junit.xml'}]
+                                        ],
+                                        testPathPattern: 'tests'
                                     };
                                     EOL
                                     
                                     # Run tests
-                                    npm test --testPathPattern=tests
+                                    npm test
                                 '''
-                                junit 'test-results/junit.xml'
                             }
+                        }
+                    }
+                    post {
+                        always {
+                            junit 'backend/test-results/junit.xml'
                         }
                     }
                 }
@@ -238,7 +226,6 @@ spec:
 
     post {
         always {
-            junit '**/test-results/**/*.xml'
             cleanWs()
         }
         failure {
