@@ -1,24 +1,21 @@
 const request = require('supertest');
 const app = require('../server');
 const mongoose = require('mongoose');
-const { teardown } = require('./jest.setup');
+const { setup, teardown } = require('./jest.setup');
+
+// Global setup and teardown
+beforeAll(async () => {
+    await setup();
+});
 
 afterAll(async () => {
-  await teardown();
+    await teardown();
 });
-describe('API Tests', () => {
-    beforeAll(async () => {
-        // Connect to test database
-        await mongoose.connect(process.env.MONGO_URI, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true
-        });
-    });
 
-    afterAll(async () => {
-        // Clean up and close connections
+describe('API Tests', () => {
+    beforeEach(async () => {
+        // Clean database between tests
         await mongoose.connection.db.dropDatabase();
-        await mongoose.disconnect();
     });
 
     describe('GET /api', () => {

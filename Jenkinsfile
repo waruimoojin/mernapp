@@ -70,16 +70,15 @@ spec:
                             dir('frontend') {
                                 sh '''
                                     npm install
-                                    npm install react-router-dom
+                                    npm install react-router-dom --save
                                     npm install --save-dev \
-                                        @testing-library/react \
-                                        @testing-library/jest-dom \
-                                        jest \
-                                        babel-jest \
-                                        @babel/preset-env \
-                                        @babel/preset-react \
-                                        react-router-dom \
-                                        jest-junit
+                                    @testing-library/react \
+                                    @testing-library/jest-dom \
+                                    jest \
+                                    babel-jest \
+                                    @babel/preset-env \
+                                    @babel/preset-react \
+                                    jest-junit
                                 '''
                             }
                         }
@@ -91,7 +90,14 @@ spec:
                             dir('backend') {
                                 sh '''
                                     npm install
-                                    npm install --save-dev jest supertest jest-junit mongodb-memory-server
+                                    npm install --save-dev \
+                                    jest \
+                                    supertest \
+                                    jest-junit \
+                                    mongodb-memory-server \
+                                    mongoose
+                                    # Verify installations
+                                    npm list jest supertest mongodb-memory-server mongoose
                                 '''
                             }
                         }
@@ -101,45 +107,62 @@ spec:
         }
 
         stage('Run Tests') {
-            parallel {
-                stage('Frontend Tests') {
-                    steps {
-                        container('nodejs') {
-                            dir('frontend') {
-                                sh 'CI=true npm test -- --coverage'
-                                sh 'ls -la coverage'  // Verify coverage exists
-                            }
-                        }
-                    }
-                    post {
-                        always {
-                            junit 'frontend/test-results/junit.xml'
-                            archiveArtifacts artifacts: 'frontend/coverage/**'
-                        }
-                    }
-                }
-                stage('Backend Tests') {
-                    steps {
-                        container('nodejs') {
-                            dir('backend') {
-                                sh '''
-                                    # Create MongoDB memory server config
-                                    echo "MONGO_URI=mongodb://localhost:27017/testdb" > .env.test
-                                    npm test -- --coverage
-                                    ls -la coverage  # Verify coverage
-                                '''
-                            }
-                        }
-                    }
-                    post {
-                        always {
-                            junit 'backend/test-results/junit.xml'
-                            archiveArtifacts artifacts: 'backend/coverage/**'
-                        }
+    parallel {
+        stage('Frontend Tests') {
+            steps {
+                container('nodejs') {
+                    dir('frontend') {
+                        sh '''
+                            # Install react-router-dom as production dependency
+                            npm install react-router-dom --save
+                            CI=true npm test -- --coverage
+                        '''
+                        junit 'junit.xml'
+                        archiveArtifacts artifacts: 'coverage/**'
                     }
                 }
             }
         }
+        stage('Backend Tests') {
+            steps {
+                container('nodejs') {
+                    dir('backend') {
+                        sh '''
+                            # Create test environment file
+                            echo "MONGO_URI=mongodb://localhost:27017/testdb" > .env.test
+                            
+                            # Create jest.setup.js if it doesn't exist
+                            if [ ! -f tests/jest.setup.js ]; then
+                                cat > tests/jest.setup.js << 'EOF'
+                                const { MongoMemoryServer } = require('mongodb-memory-server');
+                                let mongoServer;
+                                
+                                module.exports.setup = async () => {
+                                    mongoServer = await MongoMemoryServer.create();
+                                    const mongoUri = mongoServer.getUri();
+                                    process.env.MONGO_URI = mongoUri;
+                                    return mongoUri;
+                                };
+                                
+                                module.exports.teardown = async () => {
+                                    if (mongoServer) {
+                                        await mongoServer.stop();
+                                    }
+                                };
+                                EOF
+                            fi
+                            
+                            # Run tests with proper setup
+                            npm test -- --coverage --testPathPattern=tests
+                        '''
+                        junit 'test-results/junit.xml'
+                        archiveArtifacts artifacts: 'coverage/**'
+                    }
+                }
+            }
+        }
+    }
+}
 
         stage('Build & Push') {
             when {

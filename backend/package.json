@@ -5,12 +5,30 @@
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.16.3"
+    "mongoose": "^8.16.3",
+    "jest": "^29.0.0",
+    "supertest": "^6.0.0",
+    "jest-junit": "^15.0.0",
+    "mongodb-memory-server": "^8.0.0"
+
   },
   "scripts": {
     "start": "node server.js",
-    "test": "jest",
+    "test": "jest --coverage --testPathPattern=tests --detectOpenHandles --forceExit",
+    "test:watch": "jest --watch",
     "dev": "nodemon server.js"
+  },
+    "jest": {
+    "testEnvironment": "node",
+    "setupFilesAfterEnv": ["./tests/jest.setup.js"],
+    "testResultsProcessor": "jest-junit",
+    "reporters": [
+      "default",
+      "jest-junit"
+    ],
+    "coverageDirectory": "./coverage",
+    "collectCoverage": true,
+    "coverageReporters": ["lcov", "text", "clover"]
   },
   "name": "backend",
   "version": "1.0.0",
