@@ -99,60 +99,46 @@ spec:
             }
         }
 
-stage('Run Tests') {
-    parallel {
-stage('Frontend Tests') {
-    steps {
-        container('nodejs') {
-            dir('frontend') {
-                sh 'CI=true npm test -- --coverage'
-                sh 'ls -la coverage'  // Verify coverage exists
-            }
-        }
-    }
-    post {
-        always {
-            junit 'frontend/test-results/junit.xml'
-            archiveArtifacts artifacts: 'frontend/coverage/**'
-        }
-    }
-}
-            post {
-                always {
-                    junit 'frontend/test-results/junit.xml'
-                    archiveArtifacts artifacts: 'frontend/coverage/lcov-report/**/*'
+        stage('Run Tests') {
+            parallel {
+                stage('Frontend Tests') {
+                    steps {
+                        container('nodejs') {
+                            dir('frontend') {
+                                sh 'CI=true npm test -- --coverage'
+                                sh 'ls -la coverage'  // Verify coverage exists
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            junit 'frontend/test-results/junit.xml'
+                            archiveArtifacts artifacts: 'frontend/coverage/**'
+                        }
+                    }
+                }
+                stage('Backend Tests') {
+                    steps {
+                        container('nodejs') {
+                            dir('backend') {
+                                sh '''
+                                    # Create MongoDB memory server config
+                                    echo "MONGO_URI=mongodb://localhost:27017/testdb" > .env.test
+                                    npm test -- --coverage
+                                    ls -la coverage  # Verify coverage
+                                '''
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            junit 'backend/test-results/junit.xml'
+                            archiveArtifacts artifacts: 'backend/coverage/**'
+                        }
+                    }
                 }
             }
         }
-        stage('Backend Tests') {
-    steps {
-        container('nodejs') {
-            dir('backend') {
-                sh '''
-                    # Create MongoDB memory server config
-                    echo "MONGO_URI=mongodb://localhost:27017/testdb" > .env.test
-                    npm test -- --coverage
-                    ls -la coverage  # Verify coverage
-                '''
-            }
-        }
-    }
-    post {
-        always {
-            junit 'backend/test-results/junit.xml'
-            archiveArtifacts artifacts: 'backend/coverage/**'
-        }
-    }
-}
-            post {
-                always {
-                    junit 'backend/test-results/junit.xml'
-                    archiveArtifacts artifacts: 'backend/coverage/lcov-report/**/*'
-                }
-            }
-        }
-    }
-}
 
         stage('Build & Push') {
             when {
@@ -201,7 +187,7 @@ stage('Frontend Tests') {
                 }
             }
         }
-    
+    }
 
     post {
         always {
@@ -219,3 +205,4 @@ stage('Frontend Tests') {
             }
         }
     }
+}
