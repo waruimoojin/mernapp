@@ -113,16 +113,23 @@ spec:
                 container('nodejs') {
                     dir('frontend') {
                         sh '''
-                            # Install react-router-dom as production dependency
-                            npm install react-router-dom --save
+                            # Reinstall node_modules to ensure clean state
+                            rm -rf node_modules
+                            npm install
+                            npm install react-router-dom --save --force
+                    
+                            # Verify installation
+                            ls node_modules/react-router-dom
+                    
+                            # Run tests
                             CI=true npm test -- --coverage
-                        '''
-                        junit 'junit.xml'
-                        archiveArtifacts artifacts: 'coverage/**'
-                    }
-                }
+                '''
+                junit 'junit.xml'
+                archiveArtifacts artifacts: 'coverage/**'
             }
         }
+    }
+}
         stage('Backend Tests') {
             steps {
                 container('nodejs') {
