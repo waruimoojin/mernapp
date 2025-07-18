@@ -125,62 +125,25 @@ stage('Frontend Tests') {
             }
         }
         stage('Backend Tests') {
-            steps {
-                container('nodejs') {
-                    dir('backend') {
-                        // Setup MongoDB memory server and Jest config
-                        sh '''
-                            # Create MongoDB memory server setup
-                            cat > jest.setup.js << 'EOL'
-                            const { MongoMemoryServer } = require('mongodb-memory-server');
-                            const mongoose = require('mongoose');
-                            
-                            let mongoServer;
-                            
-                            module.exports = async () => {
-                                mongoServer = await MongoMemoryServer.create();
-                                process.env.MONGO_URI = mongoServer.getUri();
-                                await mongoose.connect(process.env.MONGO_URI, {
-                                    useNewUrlParser: true,
-                                    useUnifiedTopology: true,
-                                });
-                            };
-                            
-                            module.exports.teardown = async () => {
-                                await mongoose.disconnect();
-                                if (mongoServer) await mongoServer.stop();
-                            };
-                            EOL
-                            
-                            # Create Jest config
-                            cat > jest.config.js << 'EOL'
-                            module.exports = {
-                                testResultsProcessor: 'jest-junit',
-                                reporters: [
-                                    'default',
-                                    ['jest-junit', {
-                                        outputDirectory: 'test-results',
-                                        outputName: 'junit.xml'
-                                    }]
-                                ],
-                                collectCoverage: true,
-                                coverageReporters: ['lcov', 'text'],
-                                coverageDirectory: 'coverage',
-                                testEnvironment: 'node',
-                                globalSetup: '<rootDir>/jest.setup.js',
-                                setupFilesAfterEnv: ['<rootDir>/jest.setup.js']
-                            };
-                            EOL
-                            
-                            # Create test-results directory if it doesn't exist
-                            mkdir -p test-results
-                            
-                            # Run tests with CI configuration
-                            npm test -- --ci --coverage --reporters=default --reporters=jest-junit
-                        '''
-                    }
-                }
+    steps {
+        container('nodejs') {
+            dir('backend') {
+                sh '''
+                    # Create MongoDB memory server config
+                    echo "MONGO_URI=mongodb://localhost:27017/testdb" > .env.test
+                    npm test -- --coverage
+                    ls -la coverage  # Verify coverage
+                '''
             }
+        }
+    }
+    post {
+        always {
+            junit 'backend/test-results/junit.xml'
+            archiveArtifacts artifacts: 'backend/coverage/**'
+        }
+    }
+}
             post {
                 always {
                     junit 'backend/test-results/junit.xml'
