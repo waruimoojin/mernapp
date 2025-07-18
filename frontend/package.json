@@ -17,8 +17,8 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
-   "test": "jest --setupFilesAfterEnv=./jest.setup.js",
-    "test:ci": "jest --ci --coverage --reporters=default --reporters=jest-junit --setupFilesAfterEnv=./jest.setup.js",
+    "test": "jest",
+    "test:ci": "jest --ci --coverage --detectOpenHandles",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
