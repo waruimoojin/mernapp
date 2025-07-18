@@ -61,7 +61,7 @@ spec:
                 ])
             }
         }
-
+        }
         stage('Install Dependencies') {
             parallel {
                 stage('Frontend') {
