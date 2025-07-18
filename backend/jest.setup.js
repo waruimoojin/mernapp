@@ -1,6 +1,12 @@
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
+// jest.setup.js
+const { teardown } = require('./your-mongo-config-file');
+
+afterAll(async () => {
+  await teardown();
+});
 
 // 1. Load environment variables (optional for memory server)
 dotenv.config({ path: '.env.test' });

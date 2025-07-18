@@ -107,6 +107,7 @@ spec:
                                 sh '''
                                     npm install
                                     npm install --save-dev jest supertest jest-junit
+                                    npm install --save-dev mongodb-memory-server
                                 '''
                                 // Create jest.config.js using echo commands
                                 sh '''
