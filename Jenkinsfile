@@ -101,39 +101,22 @@ spec:
 
 stage('Run Tests') {
     parallel {
-        stage('Frontend Tests') {
-            steps {
-                container('nodejs') {
-                    dir('frontend') {
-                        // Create proper Jest config
-                        sh '''
-                            cat > jest.config.js << 'EOL'
-                            module.exports = {
-                                testResultsProcessor: 'jest-junit',
-                                reporters: [
-                                    'default',
-                                    ['jest-junit', {
-                                        outputDirectory: 'test-results',
-                                        outputName: 'junit.xml'
-                                    }]
-                                ],
-                                collectCoverage: true,
-                                coverageReporters: ['lcov', 'text'],
-                                coverageDirectory: 'coverage',
-                                testEnvironment: 'jsdom',
-                                setupFilesAfterEnv: ['<rootDir>/src/setupTests.js']
-                            };
-                            EOL
-                            
-                            # Create test-results directory if it doesn't exist
-                            mkdir -p test-results
-                            
-                            # Run tests with CI configuration
-                            CI=true npm test -- --ci --coverage --reporters=default --reporters=jest-junit
-                        '''
-                    }
-                }
+stage('Frontend Tests') {
+    steps {
+        container('nodejs') {
+            dir('frontend') {
+                sh 'CI=true npm test -- --coverage'
+                sh 'ls -la coverage'  // Verify coverage exists
             }
+        }
+    }
+    post {
+        always {
+            junit 'frontend/test-results/junit.xml'
+            archiveArtifacts artifacts: 'frontend/coverage/**'
+        }
+    }
+}
             post {
                 always {
                     junit 'frontend/test-results/junit.xml'
