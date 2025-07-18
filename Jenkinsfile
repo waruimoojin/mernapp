@@ -61,7 +61,7 @@ spec:
                 ])
             }
         }
-        }
+
         stage('Install Dependencies') {
             parallel {
                 stage('Frontend') {
@@ -237,7 +237,7 @@ spec:
                                 withCredentials([usernamePassword(
                                     credentialsId: env.DOCKER_CREDENTIALS_ID,
                                     usernameVariable: 'DOCKER_USERNAME',
-                                    passwordVariable: 'DOCKER_PASSWORD
+                                    passwordVariable: 'DOCKER_PASSWORD'
                                 )]) {
                                     sh '''
                                         echo $DOCKER_PASSWORD | docker login $REGISTRY -u $DOCKER_USERNAME --password-stdin
