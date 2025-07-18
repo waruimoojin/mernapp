@@ -113,22 +113,31 @@ spec:
                 container('nodejs') {
                     dir('frontend') {
                         sh '''
-                            # Clear any cached modules
+                    # Remove conflicting jest config
+                    rm -f jest.config.js
+                    
+                    # Clear node_modules and reinstall
                     rm -rf node_modules
-                    
-                    # Fresh install
                     npm install
-                    npm install react-router-dom --save
+                    npm install react-router-dom --save --force
                     
-                    # Verify the module exists
-                    ls node_modules/react-router-dom/dist
+                    # Explicitly configure jest in package.json
+                    cat > package.json.tmp << 'EOL'
+                    $(cat package.json | jq '. + {
+                        "jest": {
+                            "moduleNameMapper": {
+                                "^react-router-dom$": "<rootDir>/node_modules/react-router-dom/dist/index.js"
+                            },
+                            "testEnvironment": "jsdom",
+                            "setupFilesAfterEnv": ["<rootDir>/setupTests.js"]
+                        }
+                    }')
+                    EOL
+                    mv package.json.tmp package.json
                     
-                    # Clear Jest cache
+                    # Clear cache and run tests
                     npx jest --clearCache
-                    
-                    # Run tests with coverage
-                    CI=true npm test -- --coverage
-        
+                    CI=true npm test -- --coverage --config=package.json
                 '''
                 junit 'junit.xml'
                 archiveArtifacts artifacts: 'coverage/**'
@@ -140,36 +149,40 @@ spec:
             steps {
                 container('nodejs') {
                     dir('backend') {
-                        sh '''
-                            # Create test environment file
-                            echo "MONGO_URI=mongodb://localhost:27017/testdb" > .env.test
-                            
-                            # Create jest.setup.js if it doesn't exist
-                            if [ ! -f tests/jest.setup.js ]; then
-                                cat > tests/jest.setup.js << 'EOF'
-                                const { MongoMemoryServer } = require('mongodb-memory-server');
-                                let mongoServer;
-                                
-                                module.exports.setup = async () => {
-                                    mongoServer = await MongoMemoryServer.create();
-                                    const mongoUri = mongoServer.getUri();
-                                    process.env.MONGO_URI = mongoUri;
-                                    return mongoUri;
-                                };
-                                
-                                module.exports.teardown = async () => {
-                                    if (mongoServer) {
-                                        await mongoServer.stop();
-                                    }
-                                };
-                                EOF
-                            fi
-                            
-                            # Run tests with proper setup
-                            npm test -- --coverage --testPathPattern=tests
-                        '''
-                        junit 'test-results/junit.xml'
-                        archiveArtifacts artifacts: 'coverage/**'
+                         sh '''
+                    # Clean install
+                    rm -rf node_modules
+                    npm install
+                    
+                    # Create test environment
+                    echo "MONGO_URI=mongodb://localhost:27017/testdb" > .env.test
+                    
+                    # Create complete jest.setup.js
+                    cat > tests/jest.setup.js << 'EOL'
+                    const { MongoMemoryServer } = require('mongodb-memory-server');
+                    const mongoose = require('mongoose');
+                    
+                    let mongoServer;
+                    
+                    module.exports.setup = async () => {
+                        mongoServer = await MongoMemoryServer.create();
+                        const mongoUri = mongoServer.getUri();
+                        process.env.MONGO_URI = mongoUri;
+                        await mongoose.connect(mongoUri);
+                        return mongoUri;
+                    };
+                    
+                    module.exports.teardown = async () => {
+                        await mongoose.disconnect();
+                        if (mongoServer) await mongoServer.stop();
+                    };
+                    EOL
+                    
+                    # Run tests
+                    npm test -- --coverage --testPathPattern=tests
+                '''
+                junit 'test-results/junit.xml'
+                archiveArtifacts artifacts: 'coverage/**'
                     }
                 }
             }
