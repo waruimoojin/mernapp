@@ -99,111 +99,114 @@ spec:
             }
         }
 
-        stage('Run Tests') {
-            parallel {
-                stage('Frontend Tests') {
-                    steps {
-                        container('nodejs') {
-                            dir('frontend') {
-                                sh '''
-                                    # Create proper Jest config
-                                    cat > jest.config.js << 'EOL'
-                                    module.exports = {
-                                        testResultsProcessor: 'jest-junit',
-                                        reporters: [
-                                            'default',
-                                            ['jest-junit', {
-                                                outputDirectory: 'test-results',
-                                                outputName: 'junit.xml'
-                                            }]
-                                        ],
-                                        collectCoverage: true,
-                                        coverageReporters: ['lcov', 'text'],
-                                        coverageDirectory: 'coverage',
-                                        testEnvironment: 'jsdom',
-                                        setupFilesAfterEnv: ['<rootDir>/src/setupTests.js'],
-                                        moduleNameMapper: {
-                                            '^react-router-dom$': '<rootDir>/node_modules/react-router-dom',
-                                            '^@/(.*)$': '<rootDir>/src/$1'
-                                        }
-                                    };
-                                    EOL
-                                    
-                                    # Run tests with CI configuration
-                                    CI=true npm run test:ci || true
-                                '''
-                            }
-                        }
-                    }
-                    post {
-                        always {
-                            junit 'frontend/test-results/junit.xml'
-                            archiveArtifacts artifacts: 'frontend/coverage/**/*'
-                        }
-                    }
-                }
-                stage('Backend Tests') {
-                    steps {
-                        container('nodejs') {
-                            dir('backend') {
-                                sh '''
-                                    # Create MongoDB memory server setup
-                                    cat > jest.setup.js << 'EOL'
-                                    const { MongoMemoryServer } = require('mongodb-memory-server');
-                                    const mongoose = require('mongoose');
-                                    
-                                    let mongoServer;
-                                    
-                                    module.exports = async () => {
-                                        mongoServer = await MongoMemoryServer.create();
-                                        process.env.MONGO_URI = mongoServer.getUri();
-                                        await mongoose.connect(process.env.MONGO_URI, {
-                                            useNewUrlParser: true,
-                                            useUnifiedTopology: true,
-                                        });
-                                    };
-                                    
-                                    module.exports.teardown = async () => {
-                                        await mongoose.disconnect();
-                                        if (mongoServer) await mongoServer.stop();
-                                    };
-                                    EOL
-                                    
-                                    # Create Jest config
-                                    cat > jest.config.js << 'EOL'
-                                    module.exports = {
-                                        testResultsProcessor: 'jest-junit',
-                                        reporters: [
-                                            'default',
-                                            ['jest-junit', {
-                                                outputDirectory: 'test-results',
-                                                outputName: 'junit.xml'
-                                            }]
-                                        ],
-                                        collectCoverage: true,
-                                        coverageReporters: ['lcov', 'text'],
-                                        coverageDirectory: 'coverage',
-                                        testEnvironment: 'node',
-                                        globalSetup: '<rootDir>/jest.setup.js',
-                                        setupFilesAfterEnv: ['<rootDir>/jest.setup.js']
-                                    };
-                                    EOL
-                                    
-                                    # Run tests with CI configuration
-                                    npm run test:ci || true
-                                '''
-                            }
-                        }
-                    }
-                    post {
-                        always {
-                            junit 'backend/test-results/junit.xml'
-                            archiveArtifacts artifacts: 'backend/coverage/**/*'
-                        }
+stage('Run Tests') {
+    parallel {
+        stage('Frontend Tests') {
+            steps {
+                container('nodejs') {
+                    dir('frontend') {
+                        // Create proper Jest config
+                        sh '''
+                            cat > jest.config.js << 'EOL'
+                            module.exports = {
+                                testResultsProcessor: 'jest-junit',
+                                reporters: [
+                                    'default',
+                                    ['jest-junit', {
+                                        outputDirectory: 'test-results',
+                                        outputName: 'junit.xml'
+                                    }]
+                                ],
+                                collectCoverage: true,
+                                coverageReporters: ['lcov', 'text'],
+                                coverageDirectory: 'coverage',
+                                testEnvironment: 'jsdom',
+                                setupFilesAfterEnv: ['<rootDir>/src/setupTests.js']
+                            };
+                            EOL
+                            
+                            # Create test-results directory if it doesn't exist
+                            mkdir -p test-results
+                            
+                            # Run tests with CI configuration
+                            CI=true npm test -- --ci --coverage --reporters=default --reporters=jest-junit
+                        '''
                     }
                 }
             }
+            post {
+                always {
+                    junit 'frontend/test-results/junit.xml'
+                    archiveArtifacts artifacts: 'frontend/coverage/lcov-report/**/*'
+                }
+            }
         }
+        stage('Backend Tests') {
+            steps {
+                container('nodejs') {
+                    dir('backend') {
+                        // Setup MongoDB memory server and Jest config
+                        sh '''
+                            # Create MongoDB memory server setup
+                            cat > jest.setup.js << 'EOL'
+                            const { MongoMemoryServer } = require('mongodb-memory-server');
+                            const mongoose = require('mongoose');
+                            
+                            let mongoServer;
+                            
+                            module.exports = async () => {
+                                mongoServer = await MongoMemoryServer.create();
+                                process.env.MONGO_URI = mongoServer.getUri();
+                                await mongoose.connect(process.env.MONGO_URI, {
+                                    useNewUrlParser: true,
+                                    useUnifiedTopology: true,
+                                });
+                            };
+                            
+                            module.exports.teardown = async () => {
+                                await mongoose.disconnect();
+                                if (mongoServer) await mongoServer.stop();
+                            };
+                            EOL
+                            
+                            # Create Jest config
+                            cat > jest.config.js << 'EOL'
+                            module.exports = {
+                                testResultsProcessor: 'jest-junit',
+                                reporters: [
+                                    'default',
+                                    ['jest-junit', {
+                                        outputDirectory: 'test-results',
+                                        outputName: 'junit.xml'
+                                    }]
+                                ],
+                                collectCoverage: true,
+                                coverageReporters: ['lcov', 'text'],
+                                coverageDirectory: 'coverage',
+                                testEnvironment: 'node',
+                                globalSetup: '<rootDir>/jest.setup.js',
+                                setupFilesAfterEnv: ['<rootDir>/jest.setup.js']
+                            };
+                            EOL
+                            
+                            # Create test-results directory if it doesn't exist
+                            mkdir -p test-results
+                            
+                            # Run tests with CI configuration
+                            npm test -- --ci --coverage --reporters=default --reporters=jest-junit
+                        '''
+                    }
+                }
+            }
+            post {
+                always {
+                    junit 'backend/test-results/junit.xml'
+                    archiveArtifacts artifacts: 'backend/coverage/lcov-report/**/*'
+                }
+            }
+        }
+    }
+}
 
         stage('Build & Push') {
             when {
