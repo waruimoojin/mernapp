@@ -21,12 +21,16 @@
     "test:ci": "jest --ci --coverage --reporters=default --reporters=jest-junit",
     "eject": "react-scripts eject"
   },
+  "jest": {
+  "moduleNameMapper": {
+    "^react-router-dom$": "<rootDir>/node_modules/react-router-dom/dist/index.js"
+  },
   "eslintConfig": {
     "extends": [
       "react-app",
       "react-app/jest"
     ]
-  },
+  }},
   "browserslist": {
     "production": [
       ">0.2%",

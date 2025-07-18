@@ -113,16 +113,22 @@ spec:
                 container('nodejs') {
                     dir('frontend') {
                         sh '''
-                            # Reinstall node_modules to ensure clean state
-                            rm -rf node_modules
-                            npm install
-                            npm install react-router-dom --save --force
+                            # Clear any cached modules
+                    rm -rf node_modules
                     
-                            # Verify installation
-                            ls node_modules/react-router-dom
+                    # Fresh install
+                    npm install
+                    npm install react-router-dom --save
                     
-                            # Run tests
-                            CI=true npm test -- --coverage
+                    # Verify the module exists
+                    ls node_modules/react-router-dom/dist
+                    
+                    # Clear Jest cache
+                    npx jest --clearCache
+                    
+                    # Run tests with coverage
+                    CI=true npm test -- --coverage
+        
                 '''
                 junit 'junit.xml'
                 archiveArtifacts artifacts: 'coverage/**'
