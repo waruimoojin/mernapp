@@ -219,4 +219,3 @@ stage('Frontend Tests') {
             }
         }
     }
-}
