@@ -162,6 +162,7 @@ spec:
                                     
                                     # Run tests
                                     npm test
+                                    ls -l backend/test-results/
                                 '''
                             }
                         }
