@@ -112,30 +112,40 @@ spec:
                         container('nodejs') {
                             dir('frontend') {
                                 sh '''
-                                    # Configure Jest to output JUnit reports
-                                    echo "Configuring Jest..."
+                                    # Create directory explicitly
+                                    mkdir -p test-results
+          
+                                    # Create Jest config
                                     cat > jest.config.js << 'EOL'
                                     module.exports = {
-                                        testEnvironment: 'jsdom',
-                                        reporters: [
-                                            'default',
-                                            ['jest-junit', {outputDirectory: 'test-results', outputName: 'junit.xml'}]
-                                        ],
-                                        moduleNameMapper: {
-                                            "^react-router-dom$": "<rootDir>/node_modules/react-router-dom/dist/index.js"
-                                        }
+                                     testEnvironment: 'jsdom',
+                                     reporters: [
+                                        'default',
+                                        ['jest-junit', {
+                                        outputDirectory: './test-results',
+                                        outputName: 'junit.xml'
+                                            }]
+                                     ],
                                     };
                                     EOL
-                                    ls -l backend/test-results/
-                                    # Run tests
-                                    CI=true npm test
+          
+                                    # Debug: Show directory structure
+                                        echo "Current directory: $(pwd)"
+                                    ls -la
+          
+                                    # Actually run tests with verbose output
+                                    CI=true npm test -- --verbose
+          
+                                        # Verify report was created
+                                         ls -la test-results/
+                                    cat test-results/junit.xml || echo "No test report found"
                                 '''
                             }
                         }
                     }
                     post {
                         always {
-                            junit '**/test-results/junit.xml'
+                            junit 'frontend/test-results/junit.xml'
                         }
                     }
                 }
@@ -144,32 +154,43 @@ spec:
                         container('nodejs') {
                             dir('backend') {
                                 sh '''
+                                   # Create directory explicitly
+                                    mkdir -p test-results
+                                    
                                     # Create test environment
                                     echo "MONGO_URI=mongodb://localhost:27017/testdb" > .env.test
                                     
-                                    # Configure Jest to output JUnit reports
-                                    echo "Configuring Jest..."
+                                    # Create Jest config
                                     cat > jest.config.js << 'EOL'
                                     module.exports = {
                                         testEnvironment: 'node',
                                         reporters: [
-                                            'default',
-                                            ['jest-junit', {outputDirectory: 'test-results', outputName: 'junit.xml'}]
-                                        ],
-                                        testPathPattern: 'tests'
+                                        'default',
+                                        ['jest-junit', {
+                                            outputDirectory: './test-results',
+                                            outputName: 'junit.xml'
+                                        }]
+                                        ]
                                     };
                                     EOL
                                     
-                                    # Run tests
-                                    npm test
+                                    # Debug: Show directory structure
+                                    echo "Current directory: $(pwd)"
+                                    ls -la
                                     
-                                '''
+                                    # Actually run tests with verbose output
+                                    npm test -- --verbose
+                                    
+                                    # Verify report was created
+                                    ls -la test-results/
+                                    cat test-results/junit.xml || echo "No test report found"
+                                    '''
                             }
                         }
                     }
                     post {
                         always {
-                            junit '**/test-results/junit.xml'
+                            junit 'backend/test-results/junit.xml'
                         }
                     }
                 }

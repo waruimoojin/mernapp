@@ -5,7 +5,7 @@ module.exports = {
   moduleNameMapper: {
     '\\.(css|less)$': 'identity-obj-proxy'  // Pour les fichiers CSS
     
-  }
+  },
     globalSetup: '<rootDir>/jest.setup.js',
   globalTeardown: '<rootDir>/jest.teardown.js',
   testEnvironment: 'node'
