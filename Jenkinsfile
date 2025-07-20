@@ -135,7 +135,7 @@ spec:
                     }
                     post {
                         always {
-                            junit 'frontend/test-results/junit.xml'
+                            junit '**/test-results/junit.xml'
                         }
                     }
                 }
@@ -169,7 +169,7 @@ spec:
                     }
                     post {
                         always {
-                            junit 'backend/test-results/junit.xml'
+                            junit '**/test-results/junit.xml'
                         }
                     }
                 }
