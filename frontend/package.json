@@ -22,15 +22,8 @@
     "eject": "react-scripts eject"
   },
   "jest": {
-  "transform": {
-    "^.+\\.[jt]sx?$": "babel-jest"
+    "test": "jest --config=jest.config.js"
   },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  }},
   "browserslist": {
     "production": [
       ">0.2%",
@@ -42,5 +35,11 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "@babel/core": "^7.28.0",
+    "@babel/preset-env": "^7.28.0",
+    "@babel/preset-react": "^7.27.1",
+    "identity-obj-proxy": "^3.0.0"
   }
 }
